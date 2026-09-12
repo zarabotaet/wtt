@@ -1,0 +1,1425 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WTT — Матчи</title>
+<script>
+(function(){
+  var saved = null;
+  try { saved = localStorage.getItem('wtt_theme'); } catch(e){}
+  var theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  document.documentElement.setAttribute('data-theme', theme);
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0E1116;
+    --surface:#171B22;
+    --surface-hi:#1F2430;
+    --border:#262B35;
+    --text:#EDEFF2;
+    --muted:#8A93A3;
+    --muted-2:#5B6270;
+    --accent:#FF7A3D;
+    --accent-dim:#7A3F22;
+    --win:#4ADE80;
+    --future:#4EA8FF;
+    --card-min:280px;
+    --radius:14px;
+    --panel-bg:rgba(14,17,22,.88);
+    --panel-bg-solid:rgba(23,27,34,.92);
+    --shadow-color:rgba(0,0,0,.6);
+    --hover-a:rgba(255,255,255,.06);
+    --hover-a2:rgba(255,255,255,.05);
+    --accent-a14:rgba(255,122,61,.14);
+    --accent-a35:rgba(255,122,61,.35);
+    color-scheme:dark;
+  }
+  :root[data-theme="light"]{
+    --bg:#F5F6F8;
+    --surface:#FFFFFF;
+    --surface-hi:#EEF0F4;
+    --border:#DEE1E7;
+    --text:#1A1D23;
+    --muted:#5B6270;
+    --muted-2:#8A93A3;
+    --accent:#DB5B1E;
+    --accent-dim:#FBDCC4;
+    --win:#1E9E5A;
+    --future:#1D7FE0;
+    --panel-bg:rgba(245,246,248,.88);
+    --panel-bg-solid:rgba(255,255,255,.92);
+    --shadow-color:rgba(30,32,38,.16);
+    --hover-a:rgba(20,22,28,.045);
+    --hover-a2:rgba(20,22,28,.035);
+    --accent-a14:rgba(219,91,30,.12);
+    --accent-a35:rgba(219,91,30,.22);
+    color-scheme:light;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Manrope',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  ::selection{background:var(--accent-dim);}
+
+  a{color:inherit;text-decoration:none;}
+
+  /* ---------- Top bar ---------- */
+  header.bar{
+    position:sticky; top:0; z-index:20;
+    display:flex; align-items:center; gap:12px;
+    padding:12px 16px;
+    background:var(--panel-bg);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--border);
+  }
+  .brand{
+    display:flex; align-items:center; gap:8px;
+    font-weight:800; font-size:15px; letter-spacing:-0.01em;
+    color:var(--text); flex-shrink:0;
+  }
+  .brand .dot{
+    width:8px;height:8px;border-radius:50%;
+    background:var(--accent);
+    box-shadow:0 0 0 3px var(--accent-dim);
+  }
+  .event-select{
+    position:relative;
+    flex:1 1 auto; min-width:0; max-width:520px;
+  }
+  .event-input{
+    width:100%;
+    background:var(--surface);
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:9px 12px 9px 30px;
+    font-family:inherit; font-size:14px; font-weight:600;
+    cursor:text;
+  }
+  .event-input::placeholder{color:var(--muted-2); font-weight:600;}
+  .event-input:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+
+  .status-dot{
+    width:8px; height:8px; border-radius:50%;
+    background:var(--muted-2);
+    flex-shrink:0;
+    display:inline-block;
+  }
+  #eventStatusDot{
+    position:absolute; left:12px; top:50%; transform:translateY(-50%);
+    z-index:1;
+  }
+  .status-dot-ongoing{ background:var(--accent); box-shadow:0 0 0 3px var(--accent-a14); }
+  .status-dot-future{ background:var(--future); }
+  .status-dot-past{ background:var(--muted-2); }
+  .event-dropdown{
+    position:absolute; top:calc(100% + 6px); left:0; right:0;
+    max-height:320px; overflow-y:auto;
+    background:var(--surface-hi);
+    border:1px solid var(--border);
+    border-radius:10px;
+    box-shadow:0 14px 34px -14px var(--shadow-color);
+    z-index:25;
+  }
+  .event-option{
+    padding:9px 12px;
+    font-size:13.5px; font-weight:600;
+    color:var(--text);
+    cursor:pointer;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    display:flex; align-items:center; gap:8px;
+  }
+  .event-option:hover, .event-option.active{background:var(--hover-a);}
+  .event-option.selected{color:var(--accent);}
+  .event-option.no-match{color:var(--muted-2); cursor:default;}
+  .event-option.no-match:hover{background:none;}
+
+  .spacer{flex:1;}
+
+  .icon-btn{
+    display:flex; align-items:center; justify-content:center;
+    width:36px; height:36px; flex-shrink:0;
+    background:var(--surface);
+    border:1px solid var(--border);
+    color:var(--text);
+    border-radius:10px;
+    cursor:pointer;
+    transition:background .15s, border-color .15s;
+  }
+  .icon-btn:hover{background:var(--surface-hi); border-color:var(--muted-2);}
+  .icon-btn:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+  .icon-btn svg{width:17px;height:17px;}
+  /* Inline SVG doesn't get display:none from the plain [hidden] UA rule in
+     every browser — force it explicitly so only one theme icon ever shows. */
+  /* Setting the .hidden IDL property on an inline <svg> element doesn't
+     reliably add/remove the hidden attribute in every browser — use a
+     plain class instead, which has no such namespace quirks. */
+  .icon-hidden{display:none;}
+
+  .refresh-btn{
+    display:flex; align-items:center; gap:7px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    color:var(--text);
+    border-radius:10px;
+    padding:9px 14px;
+    font-family:inherit; font-weight:700; font-size:13.5px;
+    cursor:pointer;
+    white-space:nowrap;
+    transition:background .15s, border-color .15s;
+  }
+  .refresh-btn:hover{background:var(--surface-hi); border-color:var(--muted-2);}
+  .refresh-btn:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+  .refresh-btn svg{width:15px;height:15px; transition:transform .5s;}
+  .refresh-btn.spinning svg{animation:spin .7s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .status-line{
+    padding:8px 16px; font-size:12.5px; color:var(--muted-2);
+    display:flex; gap:16px; flex-wrap:wrap;
+    border-bottom:1px solid var(--border);
+  }
+  .status-line b{color:var(--muted); font-weight:700;}
+
+  .filter-bar{
+    display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+    padding:10px 16px;
+    border-bottom:1px solid var(--border);
+  }
+  .filter-bar select{
+    background:var(--surface);
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:6px 10px;
+    font-family:inherit; font-size:13px; font-weight:600;
+    cursor:pointer;
+    max-width:200px;
+  }
+  .filter-bar select:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+  .filter-reset{
+    background:none;
+    color:var(--muted);
+    border:none;
+    font-family:inherit; font-size:12.5px; font-weight:700;
+    text-decoration:underline;
+    cursor:pointer;
+    padding:6px 4px;
+  }
+  .filter-reset:hover{color:var(--text);}
+
+  /* ---------- Feed ---------- */
+  main{
+    padding:20px 16px 140px;
+    max-width:1600px;
+    margin:0 auto;
+  }
+  .feed{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(var(--card-min), 1fr));
+    gap:14px;
+    align-items:start;
+  }
+  .empty-msg{
+    grid-column:1/-1;
+    text-align:center;
+    color:var(--muted);
+    padding:60px 20px 60px;
+    font-size:14px;
+    line-height:1.6;
+    max-width:480px;
+    margin:0 auto;
+  }
+
+  .boundary{
+    grid-column:1/-1;
+    display:flex; align-items:center; gap:10px;
+    margin:6px 0;
+    color:var(--muted-2);
+    font-size:12px; font-weight:700;
+    letter-spacing:.02em;
+  }
+  .boundary::before,.boundary::after{
+    content:''; flex:1; height:1px; background:var(--border);
+  }
+
+  .card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:13px 14px 12px;
+    display:flex; flex-direction:column; gap:9px;
+    scroll-margin-top:90px;
+  }
+  .card.live{
+    border-color:var(--accent-dim);
+    box-shadow:0 0 0 1px var(--accent-dim), 0 8px 24px -12px var(--accent-a35);
+  }
+
+  .card-top{
+    display:flex; justify-content:space-between; align-items:flex-start; gap:8px;
+  }
+  .card-round{
+    font-size:12px; color:var(--muted); font-weight:600;
+    line-height:1.35;
+  }
+  .card-round .sub{display:block; color:var(--muted-2); font-size:11.5px; margin-top:1px;}
+
+  .badge{
+    flex-shrink:0;
+    font-size:11px; font-weight:800; letter-spacing:.02em;
+    padding:3px 8px; border-radius:100px;
+    white-space:nowrap;
+  }
+  .badge.live{
+    background:var(--accent-a14); color:var(--accent);
+    display:flex; align-items:center; gap:5px;
+  }
+  .badge.live .pulse{
+    width:6px;height:6px;border-radius:50%;background:var(--accent);
+    animation:pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.35;transform:scale(1.3);}}
+  .badge.done{background:var(--hover-a); color:var(--muted);}
+  .badge.upcoming{background:var(--hover-a2); color:var(--muted-2);}
+
+  .players{
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .player-row{
+    display:grid;
+    grid-template-columns:1fr auto;
+    align-items:center;
+    gap:10px;
+    padding:5px 0;
+  }
+  .player-row.winner .p-name{color:var(--text); font-weight:800;}
+  .player-row:not(.winner) .p-name{color:var(--muted);}
+  .p-name{
+    font-size:14px; font-weight:700;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .p-seed{color:var(--muted-2); font-weight:600; font-size:11.5px; margin-left:4px;}
+
+  .games{
+    display:flex; gap:5px; align-items:center;
+    font-variant-numeric:tabular-nums;
+  }
+  .games .g{
+    min-width:20px; text-align:center;
+    font-size:12.5px; color:var(--muted-2); font-weight:700;
+  }
+  .player-row.winner .games .g.won{color:var(--win);}
+  .sets{
+    min-width:22px; text-align:center;
+    font-size:19px; font-weight:800;
+    font-variant-numeric:tabular-nums;
+    color:var(--muted);
+  }
+  .player-row.winner .sets{color:var(--win);}
+
+  .no-score{
+    font-size:11px; color:var(--muted-2); font-style:italic;
+    line-height:1.4;
+  }
+
+  .card-bottom{
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:11.5px; color:var(--muted-2); font-weight:600;
+    padding-top:5px; border-top:1px solid var(--border);
+  }
+
+  /* ---------- Zoom slider ---------- */
+  .zoom-ctrl{
+    position:fixed; bottom:18px; right:18px; z-index:30;
+    display:flex; align-items:center; gap:10px;
+    background:var(--panel-bg-solid);
+    backdrop-filter:blur(10px);
+    border:1px solid var(--border);
+    border-radius:100px;
+    padding:9px 16px 9px 14px;
+    box-shadow:0 10px 30px -10px var(--shadow-color);
+  }
+  .zoom-ctrl label{font-size:11.5px; color:var(--muted); font-weight:700; white-space:nowrap;}
+  .zoom-ctrl input[type=range]{
+    width:110px; accent-color:var(--accent);
+  }
+
+  @media (max-width:640px){
+    header.bar{flex-wrap:wrap;}
+    .event-select{order:1; flex:1 1 100%; max-width:none;}
+    .brand{order:0;}
+    .refresh-btn{order:2;}
+    .icon-btn{order:2;}
+    .zoom-ctrl{right:12px; bottom:12px; padding:7px 12px 7px 12px;}
+    .zoom-ctrl input[type=range]{width:80px;}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .badge.live .pulse, .refresh-btn.spinning svg{animation:none;}
+  }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand"><span class="dot"></span>Матчи</div>
+  <div class="event-select" id="eventCombo">
+    <span class="status-dot" id="eventStatusDot"></span>
+    <input type="text" id="eventInput" class="event-input" aria-label="Выбор события" placeholder="Поиск события…" autocomplete="off">
+    <div class="event-dropdown" id="eventDropdown" hidden></div>
+  </div>
+  <div class="spacer"></div>
+  <button class="icon-btn" id="themeToggle" type="button" aria-label="Переключить тему">
+    <svg id="themeIconMoon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    <svg id="themeIconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="icon-hidden"><circle cx="12" cy="12" r="4.2"/><path d="M12 3v2.2M12 18.8V21M4.9 4.9l1.5 1.5M17.6 17.6l1.5 1.5M3 12h2.2M18.8 12H21M4.9 19.1l1.5-1.5M17.6 6.4l1.5-1.5"/></svg>
+  </button>
+  <button class="refresh-btn" id="refreshBtn" type="button" aria-label="Обновить">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+    <span id="refreshLabel">Обновить</span>
+  </button>
+</header>
+
+<div class="status-line" id="statusLine"></div>
+
+<div class="filter-bar" id="filterBar">
+  <select id="filterSubEvent" aria-label="Тип события">
+    <option value="">Все типы</option>
+  </select>
+  <select id="filterTable" aria-label="Стол">
+    <option value="">Все столы</option>
+  </select>
+  <select id="filterDate" aria-label="Дата">
+    <option value="">Все даты</option>
+  </select>
+  <button class="filter-reset" id="filterReset" type="button" hidden>Сбросить</button>
+</div>
+
+<main>
+  <div class="feed" id="feed">
+    <div class="empty-msg">Загрузка…</div>
+  </div>
+</main>
+
+<div class="zoom-ctrl">
+  <label for="zoomSlider">Размер карточек</label>
+  <input type="range" id="zoomSlider" min="220" max="440" step="10" value="280">
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------------- Theme ----------------
+  var THEME_KEY = 'wtt_theme';
+  var themeToggle = document.getElementById('themeToggle');
+  var iconMoon = document.getElementById('themeIconMoon');
+  var iconSun = document.getElementById('themeIconSun');
+
+  function applyThemeIcon(theme){
+    // Icon shows the theme you'll switch TO, not the current one
+    iconSun.classList.toggle('icon-hidden', theme === 'light');
+    iconMoon.classList.toggle('icon-hidden', theme !== 'light');
+  }
+  applyThemeIcon(document.documentElement.getAttribute('data-theme') || 'dark');
+
+  themeToggle.addEventListener('click', function(){
+    var current = document.documentElement.getAttribute('data-theme') || 'dark';
+    var next = current === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem(THEME_KEY, next);
+    applyThemeIcon(next);
+  });
+
+  // Follow system theme live, but only while the user hasn't chosen manually
+  if (window.matchMedia){
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function(e){
+      if (localStorage.getItem(THEME_KEY)) return; // user override takes precedence
+      var theme = e.matches ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+      applyThemeIcon(theme);
+    });
+  }
+
+  // ---------------- Config ----------------
+  var EVENTS_URL = 'https://wtt-web-frontdoor-cthahjeqhbh6aqe3.a01.azurefd.net/websitestaticapifiles/general/wtt_upcoming_only_events_list.json';
+  var SCHEDULE_URL = function(eventId){ return 'https://wtt-web-frontdoor-cthahjeqhbh6aqe3.a01.azurefd.net/websitecacheddata/'+eventId+'/schedule/schedule.json?q='+Date.now(); };
+  var RESULTS10_URL = function(eventId){ return 'https://wtt-web-frontdoor-cthahjeqhbh6aqe3.a01.azurefd.net/websitestaticapifiles/'+eventId+'/'+eventId+'_take_10_official_results.json?q='+Date.now(); };
+  var MATCHDATA_URL = function(eventId, docCode){ return 'https://wtt-web-frontdoor-cthahjeqhbh6aqe3.a01.azurefd.net/matchdata/'+eventId+'/'+docCode+'.json?q='+Date.now(); };
+  var ARCHIVE_URL = function(eventId){ return 'https://wtt-web-frontdoor-cthahjeqhbh6aqe3.a01.azurefd.net/websitearchivedresults/'+eventId+'/officialresult/officialresult.json?q='+Date.now(); };
+  var LIVE_IDS_URL = function(eventId){ return 'https://wtt-web-frontdoor-cthahjeqhbh6aqe3.a01.azurefd.net/websitestaticapifiles/running-events/'+eventId+'/'+eventId+'_livematchids.json?q='+Date.now(); };
+
+  var LIVE_POLL_MS = 30000;
+  var DB_NAME = 'wtt_cache_db';
+  var DB_STORE = 'kv';
+
+  // ---------------- IndexedDB helper ----------------
+  var dbPromise = null;
+  function openDb(){
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise(function(resolve, reject){
+      var req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = function(){
+        req.result.createObjectStore(DB_STORE);
+      };
+      req.onsuccess = function(){ resolve(req.result); };
+      req.onerror = function(){ reject(req.error); };
+    });
+    return dbPromise;
+  }
+  function idbGet(key){
+    return openDb().then(function(db){
+      return new Promise(function(resolve){
+        var tx = db.transaction(DB_STORE, 'readonly');
+        var req = tx.objectStore(DB_STORE).get(key);
+        req.onsuccess = function(){ resolve(req.result || null); };
+        req.onerror = function(){ resolve(null); };
+      });
+    }).catch(function(){ return null; });
+  }
+  function idbGetMany(keys){
+    // One transaction for N reads instead of N separate round-trips — used
+    // when checking the permanent match-score cache for a whole batch of
+    // matches at once (e.g. after switching events or loading a big draw).
+    if (!keys.length) return Promise.resolve({});
+    return openDb().then(function(db){
+      return new Promise(function(resolve){
+        var tx = db.transaction(DB_STORE, 'readonly');
+        var store = tx.objectStore(DB_STORE);
+        var out = {};
+        keys.forEach(function(k){
+          var req = store.get(k);
+          req.onsuccess = function(){ out[k] = req.result || null; };
+        });
+        tx.oncomplete = function(){ resolve(out); };
+        tx.onerror = function(){ resolve(out); };
+      });
+    }).catch(function(){ return {}; });
+  }
+  function idbSet(key, value){
+    return openDb().then(function(db){
+      return new Promise(function(resolve){
+        var tx = db.transaction(DB_STORE, 'readwrite');
+        tx.objectStore(DB_STORE).put(value, key);
+        tx.oncomplete = function(){ resolve(true); };
+        tx.onerror = function(){ resolve(false); };
+      });
+    }).catch(function(){ return false; });
+  }
+
+  // ---------------- Fetch helpers ----------------
+  var SANDBOX_HINT =
+    'Не удалось подключиться к API World Table Tennis.<br>' +
+    'Если ты открыл этот файл во встроенном превью Claude — сетевые запросы к внешним сайтам там могут быть ограничены.<br>' +
+    'Скачай файл и открой его как обычный HTML-файл в браузере (не через превью) — тогда всё загрузится.';
+
+  function fetchJson(url){
+    return fetch(url, {cache:'no-store'}).then(function(res){
+      if (!res.ok) throw new Error('HTTP '+res.status);
+      return res.json();
+    });
+  }
+
+  function normalizeCode(code){
+    return (code || '').replace(/-+$/, '');
+  }
+
+  var DOC_CODE_LENGTH = 42; // fixed-width documentCode; schedule.json's Code needs padding to this
+  function fullDocCode(code){
+    if (!code) return code;
+    if (code.length >= DOC_CODE_LENGTH) return code;
+    return code + new Array(DOC_CODE_LENGTH - code.length + 1).join('-');
+  }
+
+  // ---------------- State ----------------
+  var state = {
+    eventsList: null,       // deduped [{eventId, eventName}]
+    currentEventId: null,
+    schedule: [],            // normalized matches
+    results10ByCode: {},     // normalizedCode -> match_card (from take-10 file, refreshed each load)
+    individualCardsByCode: {}, // eventId+'::'+normCode -> match_card (fetched one-by-one, cached forever)
+    inFlightCards: {},      // eventId+'::'+normCode -> true while a fetch for it is in progress
+    liveCardsByCode: {},    // eventId+'::'+normCode -> match_card for currently-live matches (refreshed every poll, never cached to disk)
+    lastUnits: [],           // raw schedule units, kept to rebuild after individual fetches resolve
+    lastArchiveItems: [],    // archived officialresult items (full match_card each), for long-concluded events
+    liveDocCodes: {},        // eventId+'::'+normCode -> full documentCode, from livematchids.json (refreshed each load)
+    liveOnlyCards: {},       // eventId+'::'+normCode -> {docCode, card}, for live matches missing from schedule.json entirely
+    liveCodes: {},           // normalizedCode -> true
+    isRefreshing: false,
+    cardMin: 280,
+    hasRenderedOnce: false,
+    filters: { subEvent: '', table: '', date: '' },
+    filterOptionsSignature: ''
+  };
+
+  function findResultCard(eventId, normCode){
+    var key = eventId + '::' + normCode;
+    return state.liveCardsByCode[key] || state.results10ByCode[normCode] || state.individualCardsByCode[key] || null;
+  }
+
+  // ---------------- Rendering ----------------
+  var feedEl = document.getElementById('feed');
+  var statusEl = document.getElementById('statusLine');
+  var refreshBtn = document.getElementById('refreshBtn');
+
+  function fmtTime(dateStr){
+    var d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    var now = new Date();
+    var sameDay = d.toDateString() === now.toDateString();
+    var time = d.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+    if (sameDay) return 'Сегодня, ' + time;
+    var day = d.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
+    return day + ', ' + time;
+  }
+
+  function parseScores(scoresStr){
+    // "12,11,11,0,0" -> [12,11,11,0,0]
+    if (!scoresStr) return [];
+    return scoresStr.split(',').map(function(n){ return parseInt(n,10); }).filter(function(n){ return !isNaN(n); });
+  }
+
+  function buildMatch(unit, eventId){
+    var code = unit.Code;
+    var normCode = normalizeCode(code);
+    var startDate = unit.StartDate;
+    var status = unit.ScheduleStatus; // 'Scheduled' | 'Start List' | 'Official'
+    var starts = (unit.StartList && unit.StartList.Start) || [];
+    var players = starts.map(function(s){
+      var d = s.Competitor && s.Competitor.Description;
+      return {
+        name: (d && d.TeamName) || '—',
+        seed: s.Competitor && s.Competitor.Seed
+      };
+    });
+    var descArr = unit.ItemDescription || [];
+    var desc = (descArr[0] && descArr[0].Value) || unit.SubEvent || '';
+
+    var resultCard = findResultCard(eventId, normCode);
+    var gameScores = null, winnerIdx = null, hasDecidedWinner = false;
+    if (resultCard && resultCard.competitiors && resultCard.competitiors.length === 2){
+      var c0 = parseScores(resultCard.competitiors[0].scores);
+      var c1 = parseScores(resultCard.competitiors[1].scores);
+      gameScores = [c0, c1];
+      var sets0 = c0.filter(function(v,i){ return v > c1[i]; }).length;
+      var sets1 = c1.filter(function(v,i){ return v > c0[i]; }).length;
+      var gamesToWin = Math.ceil((resultCard.matchConfig && resultCard.matchConfig.bestOfXGames || 5) / 2);
+      if (sets0 >= gamesToWin || sets1 >= gamesToWin){
+        winnerIdx = sets0 > sets1 ? 0 : 1;
+        hasDecidedWinner = true;
+      }
+    }
+
+    // WTT's own ScheduleStatus can lag behind reality (a match that has
+    // actually finished may still say "Start List" or even "Scheduled").
+    // If we can see from the score itself that someone has already won,
+    // trust that over the raw status.
+    var effectiveStatus = hasDecidedWinner ? 'Official' : status;
+    var isLive = effectiveStatus === 'Start List';
+    var isDone = effectiveStatus === 'Official';
+
+    return {
+      code: code,
+      normCode: normCode,
+      startDate: startDate,
+      endDate: unit.EndDate,
+      status: isLive ? 'live' : (isDone ? 'done' : 'scheduled'),
+      round: desc,
+      subEvent: unit.SubEvent,
+      table: (unit.VenueDescription && unit.VenueDescription.LocationName) || '',
+      venue: (unit.VenueDescription && unit.VenueDescription.VenueName) || '',
+      players: players,
+      gameScores: gameScores,   // [[p1 games...],[p2 games...]] or null
+      winnerIdx: winnerIdx      // 0, 1 or null
+    };
+  }
+
+  function buildMatchFromArchiveItem(item){
+    // The archive endpoint (used for tournaments that concluded long ago)
+    // embeds a full match_card per item — same shape as the matchdata/
+    // per-match fetch, so this mirrors buildMatch's score parsing directly.
+    var card = item.match_card;
+    var normCode = normalizeCode(item.documentCode);
+    var gameScores = null, winnerIdx = null;
+    var players = [];
+    if (card && card.competitiors && card.competitiors.length === 2){
+      players = card.competitiors.map(function(c){ return { name: c.competitiorName || '—', seed: null }; });
+      var c0 = parseScores(card.competitiors[0].scores);
+      var c1 = parseScores(card.competitiors[1].scores);
+      gameScores = [c0, c1];
+      var sets0 = c0.filter(function(v,i){ return v > c1[i]; }).length;
+      var sets1 = c1.filter(function(v,i){ return v > c0[i]; }).length;
+      var gamesToWin = Math.ceil((card.matchConfig && card.matchConfig.bestOfXGames || 5) / 2);
+      if (sets0 >= gamesToWin || sets1 >= gamesToWin){
+        winnerIdx = sets0 > sets1 ? 0 : 1;
+      }
+    }
+    return {
+      code: item.documentCode,
+      normCode: normCode,
+      startDate: item.startDateLocal,
+      endDate: item.startDateLocal,
+      status: 'done',
+      round: (card && (card.subEventDescription || card.subEventName)) || '',
+      subEvent: card && card.subEventName,
+      table: (card && card.tableName) || '',
+      venue: (card && card.venueName) || '',
+      players: players,
+      gameScores: gameScores,
+      winnerIdx: winnerIdx
+    };
+  }
+
+  function fmtExact(dateStr){
+    var d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+  }
+
+  function cardHtml(m){
+    var badge;
+    if (m.status === 'live'){
+      badge = '<span class="badge live"><span class="pulse"></span>LIVE</span>';
+    } else if (m.status === 'done'){
+      var exact = fmtExact(m.endDate || m.startDate);
+      badge = '<span class="badge done" title="Завершён: ' + escapeHtml(exact) + '">Завершён</span>';
+    } else {
+      badge = '<span class="badge upcoming" title="' + escapeHtml(fmtExact(m.startDate)) + '">' + fmtTime(m.startDate) + '</span>';
+    }
+
+    var maxGames = 0;
+    if (m.gameScores){
+      var g0 = m.gameScores[0], g1 = m.gameScores[1];
+      var fullLen = Math.max(g0.length, g1.length);
+      for (var gi = fullLen - 1; gi >= 0; gi--){
+        if ((g0[gi] || 0) !== 0 || (g1[gi] || 0) !== 0){ maxGames = gi + 1; break; }
+      }
+      if (maxGames === 0 && fullLen > 0) maxGames = 1; // safety net, shouldn't normally trigger
+    }
+
+    var playersHtml = m.players.map(function(p, idx){
+      var isWinner = m.winnerIdx === idx;
+      var gamesHtml = '';
+      var setsHtml = '';
+      if (m.gameScores){
+        var own = m.gameScores[idx], opp = m.gameScores[1-idx];
+        for (var g=0; g<maxGames; g++){
+          if (own[g] === undefined) continue;
+          var won = own[g] > (opp[g] || 0);
+          gamesHtml += '<span class="g' + (won ? ' won':'') + '">' + own[g] + '</span>';
+        }
+        var setsWon = own.filter(function(v,i){ return v > (opp[i]||0); }).length;
+        setsHtml = '<span class="sets">' + setsWon + '</span>';
+      }
+      return '<div class="player-row' + (isWinner ? ' winner':'') + '">' +
+        '<span class="p-name">' + escapeHtml(p.name) + (p.seed ? '<span class="p-seed">(' + p.seed + ')</span>' : '') + '</span>' +
+        '<span class="games">' + gamesHtml + setsHtml + '</span>' +
+      '</div>';
+    }).join('');
+
+    var noScoreNote = (m.status === 'done' && !m.gameScores)
+      ? '<div class="no-score">Загрузка счёта…</div>'
+      : '';
+
+    return (
+      '<div class="card ' + m.status + '" data-code="' + m.normCode + '">' +
+        '<div class="card-top">' +
+          '<div class="card-round">' + escapeHtml(m.round) + '<span class="sub">' + escapeHtml(m.subEvent || '') + '</span></div>' +
+          badge +
+        '</div>' +
+        '<div class="players">' + playersHtml + '</div>' +
+        noScoreNote +
+        '<div class="card-bottom"><span>' + escapeHtml(m.table || '') + '</span><span>' + escapeHtml(m.venue || '') + '</span></div>' +
+      '</div>'
+    );
+  }
+
+  function escapeHtml(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function sortKey(m){
+    return new Date(m.startDate).getTime();
+  }
+
+  function sectionHeader(label, id){
+    return '<div class="boundary"' + (id ? ' id="' + id + '"' : '') + '>' + escapeHtml(label) + '</div>';
+  }
+
+  function matchDateKey(startDate){
+    var d = new Date(startDate);
+    if (isNaN(d.getTime())) return '';
+    return d.toISOString().slice(0,10); // YYYY-MM-DD, venue-local per API's own timestamp
+  }
+
+  function applyFilters(matches){
+    return matches.filter(function(m){
+      if (state.filters.subEvent && m.subEvent !== state.filters.subEvent) return false;
+      if (state.filters.table && m.table !== state.filters.table) return false;
+      if (state.filters.date && matchDateKey(m.startDate) !== state.filters.date) return false;
+      return true;
+    });
+  }
+
+  function fmtDateOption(dateKey){
+    var d = new Date(dateKey + 'T00:00:00');
+    if (isNaN(d.getTime())) return dateKey;
+    return d.toLocaleDateString('ru-RU', {day:'numeric', month:'long'});
+  }
+
+  var filterSubEventEl = document.getElementById('filterSubEvent');
+  var filterTableEl = document.getElementById('filterTable');
+  var filterDateEl = document.getElementById('filterDate');
+  var filterResetEl = document.getElementById('filterReset');
+
+  function populateFilterOptions(){
+    // Rebuild option lists whenever the underlying match set actually
+    // changes — cheap signature check avoids re-touching the <select>
+    // (and losing focus/scroll) on every render() call otherwise.
+    var subEvents = [], tables = [], dates = [];
+    var seenSub = {}, seenTable = {}, seenDate = {};
+    state.schedule.forEach(function(m){
+      if (m.subEvent && !seenSub[m.subEvent]){ seenSub[m.subEvent] = true; subEvents.push(m.subEvent); }
+      if (m.table && !seenTable[m.table]){ seenTable[m.table] = true; tables.push(m.table); }
+      var dk = matchDateKey(m.startDate);
+      if (dk && !seenDate[dk]){ seenDate[dk] = true; dates.push(dk); }
+    });
+    subEvents.sort();
+    tables.sort();
+    dates.sort();
+
+    var signature = subEvents.join(',') + '|' + tables.join(',') + '|' + dates.join(',');
+    if (signature === state.filterOptionsSignature) return;
+    state.filterOptionsSignature = signature;
+
+    filterSubEventEl.innerHTML = '<option value="">Все типы</option>' +
+      subEvents.map(function(s){ return '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</option>'; }).join('');
+    filterTableEl.innerHTML = '<option value="">Все столы</option>' +
+      tables.map(function(t){ return '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>'; }).join('');
+    filterDateEl.innerHTML = '<option value="">Все даты</option>' +
+      dates.map(function(d){ return '<option value="' + d + '">' + escapeHtml(fmtDateOption(d)) + '</option>'; }).join('');
+
+    filterSubEventEl.value = state.filters.subEvent;
+    filterTableEl.value = state.filters.table;
+    filterDateEl.value = state.filters.date;
+  }
+
+  function updateFilterResetVisibility(){
+    var anyActive = state.filters.subEvent || state.filters.table || state.filters.date;
+    filterResetEl.hidden = !anyActive;
+  }
+
+  filterSubEventEl.addEventListener('change', function(){
+    state.filters.subEvent = filterSubEventEl.value;
+    updateFilterResetVisibility();
+    render();
+  });
+  filterTableEl.addEventListener('change', function(){
+    state.filters.table = filterTableEl.value;
+    updateFilterResetVisibility();
+    render();
+  });
+  filterDateEl.addEventListener('change', function(){
+    state.filters.date = filterDateEl.value;
+    updateFilterResetVisibility();
+    render();
+  });
+  filterResetEl.addEventListener('click', function(){
+    state.filters = { subEvent: '', table: '', date: '' };
+    filterSubEventEl.value = '';
+    filterTableEl.value = '';
+    filterDateEl.value = '';
+    updateFilterResetVisibility();
+    render();
+  });
+
+  function render(){
+    populateFilterOptions();
+
+    var all = state.schedule.slice().sort(function(a,b){
+      return sortKey(b) - sortKey(a); // future -> past
+    });
+    var matches = applyFilters(all);
+
+    if (!matches.length){
+      feedEl.innerHTML = '<div class="empty-msg">' +
+        (all.length ? 'Нет матчей по выбранным фильтрам' : 'Нет матчей для этого события') +
+        '</div>';
+      updateStatusLine(matches);
+      return;
+    }
+
+    var scheduled = matches.filter(function(m){ return m.status === 'scheduled'; });
+    var lives = matches.filter(function(m){ return m.status === 'live'; });
+    var dones = matches.filter(function(m){ return m.status === 'done'; });
+
+    // Each section gets its own header, shown only when that section
+    // actually has matches — no header/line at all for an empty one.
+    var html = '';
+    if (scheduled.length){
+      html += sectionHeader('Предстоящие');
+      html += scheduled.map(cardHtml).join('');
+    }
+    if (lives.length){
+      html += sectionHeader('Текущие', 'sectionLive');
+      html += lives.map(cardHtml).join('');
+    }
+    if (dones.length){
+      html += sectionHeader('Прошедшие', 'sectionPast');
+      html += dones.map(cardHtml).join('');
+    }
+
+    feedEl.innerHTML = html;
+    updateStatusLine(matches);
+
+    if (!state.hasRenderedOnce){
+      state.hasRenderedOnce = true;
+      var firstLiveCode = lives.length ? lives[0].normCode : null;
+      requestAnimationFrame(function(){
+        var target = firstLiveCode
+          ? feedEl.querySelector('.card[data-code="' + firstLiveCode + '"]')
+          : document.getElementById('sectionPast');
+        if (target) target.scrollIntoView({behavior:'auto', block:'center'});
+      });
+    }
+  }
+
+  function updateStatusLine(matches){
+    var live = matches.filter(function(m){ return m.status === 'live'; }).length;
+    var upcoming = matches.filter(function(m){ return m.status === 'scheduled'; }).length;
+    var done = matches.filter(function(m){ return m.status === 'done'; }).length;
+    statusEl.innerHTML =
+      '<span><b>' + live + '</b> live</span>' +
+      '<span><b>' + upcoming + '</b> предстоящих</span>' +
+      '<span><b>' + done + '</b> завершено (посл. 10 со счётом)</span>';
+  }
+
+  // ---------------- Data loading ----------------
+  var SAVED_EVENT_KEY = 'wtt_selected_event_id';
+
+  function loadEventsList(){
+    return idbGet('events_list').then(function(cached){
+      if (cached && cached.data) onEventsListLoaded(cached.data);
+      return fetchJson(EVENTS_URL).then(function(fresh){
+        var normalized = normalizeEventsList(fresh);
+        idbSet('events_list', {data: normalized, ts: Date.now()});
+        onEventsListLoaded(normalized);
+        return normalized;
+      }).catch(function(){
+        return cached ? cached.data : [];
+      });
+    });
+  }
+
+  var TOURNAMENT_STATUS_RANK = { ongoing: 0, future: 1, past: 2 };
+
+  function tournamentStatus(e){
+    var now = Date.now();
+    var start = new Date(e.startDateTime).getTime();
+    var end = new Date(e.endDateTime).getTime();
+    if (!isNaN(start) && !isNaN(end) && start <= now && now <= end) return 'ongoing';
+    if (!isNaN(start) && start > now) return 'future';
+    return 'past';
+  }
+
+  function normalizeEventsList(list){
+    // wtt_upcoming_only_events_list.json is (despite the name) the full
+    // events list — one row per event already, with real start/end dates,
+    // which lets us derive an actual ongoing/future/past status.
+    var out = list.map(function(item){
+      var status = tournamentStatus(item);
+      return {
+        eventId: item.eventId,
+        eventName: item.eventName,
+        startDateTime: item.startDateTime,
+        endDateTime: item.endDateTime,
+        status: status
+      };
+    });
+    out.sort(function(a, b){
+      var r = TOURNAMENT_STATUS_RANK[a.status] - TOURNAMENT_STATUS_RANK[b.status];
+      if (r !== 0) return r;
+      // ongoing/future: soonest first; past: most recently finished first
+      var da = new Date(a.startDateTime).getTime();
+      var db = new Date(b.startDateTime).getTime();
+      return a.status === 'past' ? db - da : da - db;
+    });
+    return out;
+  }
+
+  function onEventsListLoaded(list){
+    state.eventsList = list;
+    if (!state.currentEventId && list.length){
+      var saved = localStorage.getItem(SAVED_EVENT_KEY);
+      var match = saved && list.filter(function(e){ return String(e.eventId) === String(saved); })[0];
+      state.currentEventId = match ? match.eventId : list[0].eventId;
+    }
+    updateEventInputDisplay();
+  }
+
+  function updateEventInputDisplay(){
+    var found = (state.eventsList || []).filter(function(e){ return String(e.eventId) === String(state.currentEventId); })[0];
+    eventInput.value = found ? found.eventName : '';
+    var dot = document.getElementById('eventStatusDot');
+    dot.className = 'status-dot' + (found ? ' status-dot-' + found.status : '');
+  }
+
+  // ---------------- Event combobox (search + remember) ----------------
+  var eventInput = document.getElementById('eventInput');
+  var eventDropdown = document.getElementById('eventDropdown');
+  var combo = { filtered: [], activeIndex: -1, open: false };
+
+  function statusDotHtml(status){
+    return '<span class="status-dot status-dot-' + status + '"></span>';
+  }
+
+  function openDropdown(){
+    combo.open = true;
+    eventDropdown.hidden = false;
+    renderDropdown(eventInput.value.trim());
+  }
+  function closeDropdown(revert){
+    combo.open = false;
+    eventDropdown.hidden = true;
+    combo.activeIndex = -1;
+    if (revert) updateEventInputDisplay();
+  }
+  function renderDropdown(filterText){
+    var list = state.eventsList || [];
+    var q = filterText.toLowerCase();
+    var filtered = q ? list.filter(function(e){ return e.eventName.toLowerCase().indexOf(q) !== -1; }) : list;
+    combo.filtered = filtered;
+    combo.activeIndex = filtered.length ? 0 : -1;
+    if (!filtered.length){
+      eventDropdown.innerHTML = '<div class="event-option no-match">Ничего не найдено</div>';
+      return;
+    }
+    eventDropdown.innerHTML = filtered.map(function(e, i){
+      var cls = 'event-option' +
+        (String(e.eventId) === String(state.currentEventId) ? ' selected' : '') +
+        (i === combo.activeIndex ? ' active' : '');
+      return '<div class="' + cls + '" data-idx="' + i + '">' + statusDotHtml(e.status) + escapeHtml(e.eventName) + '</div>';
+    }).join('');
+  }
+  function setActive(idx){
+    var opts = eventDropdown.querySelectorAll('.event-option');
+    opts.forEach(function(el){ el.classList.remove('active'); });
+    if (opts[idx]){
+      opts[idx].classList.add('active');
+      opts[idx].scrollIntoView({block:'nearest'});
+    }
+    combo.activeIndex = idx;
+  }
+  function chooseEvent(evt){
+    if (!evt) return;
+    closeDropdown(false);
+    eventInput.value = evt.eventName;
+    eventInput.blur();
+    if (String(evt.eventId) === String(state.currentEventId)) return;
+    state.currentEventId = evt.eventId;
+    localStorage.setItem(SAVED_EVENT_KEY, evt.eventId);
+    state.hasRenderedOnce = false;
+    state.filters = { subEvent: '', table: '', date: '' };
+    state.filterOptionsSignature = '';
+    filterResetEl.hidden = true;
+    feedEl.innerHTML = '<div class="empty-msg">Загрузка…</div>';
+    loadEventData(state.currentEventId);
+  }
+
+  eventInput.addEventListener('focus', function(){
+    eventInput.select();
+    openDropdown();
+  });
+  eventInput.addEventListener('input', function(){
+    renderDropdown(eventInput.value.trim());
+  });
+  eventInput.addEventListener('keydown', function(e){
+    if (!combo.open && (e.key === 'ArrowDown' || e.key === 'Enter')){ openDropdown(); return; }
+    if (e.key === 'ArrowDown'){
+      e.preventDefault();
+      setActive(Math.min(combo.activeIndex + 1, combo.filtered.length - 1));
+    } else if (e.key === 'ArrowUp'){
+      e.preventDefault();
+      setActive(Math.max(combo.activeIndex - 1, 0));
+    } else if (e.key === 'Enter'){
+      e.preventDefault();
+      chooseEvent(combo.filtered[combo.activeIndex]);
+    } else if (e.key === 'Escape'){
+      closeDropdown(true);
+      eventInput.blur();
+    }
+  });
+  eventDropdown.addEventListener('mousedown', function(e){
+    var opt = e.target.closest('.event-option');
+    if (!opt || opt.classList.contains('no-match')) return;
+    var idx = parseInt(opt.getAttribute('data-idx'), 10);
+    chooseEvent(combo.filtered[idx]);
+  });
+  document.addEventListener('click', function(e){
+    if (combo.open && !document.getElementById('eventCombo').contains(e.target)){
+      closeDropdown(true);
+    }
+  });
+
+  function loadEventData(eventId, opts){
+    opts = opts || {};
+    var scheduleKey = 'schedule_' + eventId;
+    var resultsKey = 'results10_' + eventId;
+    var archiveKey = 'archive_' + eventId;
+
+    var showedCache = false;
+
+    return Promise.all([idbGet(scheduleKey), idbGet(resultsKey), idbGet(archiveKey)]).then(function(cached){
+      var cachedSched = cached[0], cachedResults = cached[1], cachedArchive = cached[2];
+      if (cachedSched && cachedSched.data){
+        applyScheduleAndResults(eventId, cachedSched.data, cachedResults ? cachedResults.data : [], cachedArchive ? cachedArchive.data : [], []);
+        showedCache = true;
+      }
+      return fetchFresh();
+    });
+
+    function fetchFresh(){
+      setRefreshing(true);
+      return Promise.all([
+        fetchJson(SCHEDULE_URL(eventId)),
+        fetchJson(RESULTS10_URL(eventId)).catch(function(){ return []; }),
+        fetchJson(ARCHIVE_URL(eventId)).catch(function(){ return []; }),
+        fetchJson(LIVE_IDS_URL(eventId)).catch(function(){ return []; })
+      ]).then(function(res){
+        var sched = res[0], results = res[1], archive = res[2], liveIds = res[3];
+        idbSet(scheduleKey, {data: sched, ts: Date.now()});
+        idbSet(resultsKey, {data: results, ts: Date.now()});
+        idbSet(archiveKey, {data: archive, ts: Date.now()});
+        applyScheduleAndResults(eventId, sched, results, archive, liveIds);
+        setRefreshing(false);
+      }).catch(function(err){
+        setRefreshing(false);
+        if (!showedCache){
+          feedEl.innerHTML = '<div class="empty-msg">' + SANDBOX_HINT + '</div>';
+        }
+        console.warn('load error', err);
+      });
+    }
+  }
+
+  var STATUS_PRIORITY = { 'Official': 3, 'Start List': 2, 'Scheduled': 1 };
+
+  function dedupeUnits(units){
+    // WTT's own schedule.json can contain several stale snapshots of the
+    // same match (e.g. Scheduled + Start List + Official all at once) as
+    // it was updated over time. Keep only the most advanced one per code.
+    var best = {};
+    units.forEach(function(u){
+      var c = normalizeCode(u.Code);
+      var p = STATUS_PRIORITY[u.ScheduleStatus] || 0;
+      if (!best[c] || p > (STATUS_PRIORITY[best[c].ScheduleStatus] || 0)){
+        best[c] = u;
+      }
+    });
+    return Object.keys(best).map(function(c){ return best[c]; });
+  }
+
+  function hasRealPlayers(m){
+    // A bracket slot that hasn't been filled yet (e.g. a Final waiting on a
+    // semifinal result) reports no real competitor names — nothing useful
+    // to show, and it can end up mismatched with an unrelated match's score.
+    return m.players.length > 0 && m.players.some(function(p){ return p.name !== '—'; });
+  }
+
+  function buildOrphanLiveMatch(docCode, card){
+    // livematchids.json can list matches that schedule.json hasn't picked
+    // up at all yet (confirmed live on WTT's own site while completely
+    // absent from schedule.json) — build a card straight from matchdata/.
+    var normCode = normalizeCode(docCode);
+    var players = [], gameScores = null, winnerIdx = null, status = 'live';
+    if (card && card.competitiors && card.competitiors.length === 2){
+      players = card.competitiors.map(function(c){ return { name: c.competitiorName || '—', seed: null }; });
+      var c0 = parseScores(card.competitiors[0].scores);
+      var c1 = parseScores(card.competitiors[1].scores);
+      gameScores = [c0, c1];
+      var sets0 = c0.filter(function(v,i){ return v > c1[i]; }).length;
+      var sets1 = c1.filter(function(v,i){ return v > c0[i]; }).length;
+      var gamesToWin = Math.ceil((card.matchConfig && card.matchConfig.bestOfXGames || 5) / 2);
+      // livematchids.json can lag by a few seconds right at the very end
+      // of a match too — if the score already shows a clear winner, treat
+      // it as finished rather than trusting the "still live" claim.
+      if (sets0 >= gamesToWin || sets1 >= gamesToWin){
+        winnerIdx = sets0 > sets1 ? 0 : 1;
+        status = 'done';
+      }
+    }
+    return {
+      code: docCode,
+      normCode: normCode,
+      startDate: new Date().toISOString(),
+      endDate: new Date().toISOString(),
+      status: status,
+      round: (card && (card.subEventDescription || card.subEventName)) || '',
+      subEvent: card && card.subEventName,
+      table: (card && card.tableName) || '',
+      venue: (card && card.venueName) || '',
+      players: players,
+      gameScores: gameScores,
+      winnerIdx: winnerIdx
+    };
+  }
+
+  function computeMergedMatches(eventId){
+    var scheduleMatches = state.lastUnits.map(function(u){ return buildMatch(u, eventId); }).filter(hasRealPlayers);
+    var archiveMatches = state.lastArchiveItems.map(buildMatchFromArchiveItem).filter(hasRealPlayers);
+
+    // For a tournament that concluded long ago, schedule.json often keeps
+    // only a handful of matches (finals/semis) while the archive endpoint
+    // has the complete history — so the archive wins whenever both cover
+    // the same match, and fills in everything schedule.json dropped.
+    var merged = {};
+    scheduleMatches.forEach(function(m){ merged[m.normCode] = m; });
+    archiveMatches.forEach(function(m){ merged[m.normCode] = m; });
+
+    var prefix = eventId + '::';
+    // livematchids.json updates faster (and more completely) than
+    // schedule.json's own status field — trust it over a stale status.
+    Object.keys(state.liveDocCodes).forEach(function(key){
+      if (key.indexOf(prefix) !== 0) return;
+      var normCode = normalizeCode(state.liveDocCodes[key]);
+      // Don't downgrade a match whose own score already shows it's finished
+      // (buildMatch/buildMatchFromArchiveItem already trust the score over
+      // a stale status) — only trust "still live" where nothing disputes it.
+      if (merged[normCode] && merged[normCode].status !== 'done') merged[normCode].status = 'live';
+    });
+    // And for a live match schedule.json/archive don't have at all, build
+    // it directly from its own matchdata/ card once that's been fetched.
+    Object.keys(state.liveOnlyCards).forEach(function(key){
+      if (key.indexOf(prefix) !== 0) return;
+      var normCode = key.slice(prefix.length);
+      if (!merged[normCode]){
+        var entry = state.liveOnlyCards[key];
+        merged[normCode] = buildOrphanLiveMatch(entry.docCode, entry.card);
+      }
+    });
+
+    return Object.keys(merged).map(function(k){ return merged[k]; });
+  }
+
+  function fetchOrphanLiveMatches(eventId){
+    var prefix = eventId + '::';
+    var knownCodes = {};
+    state.schedule.forEach(function(m){ knownCodes[m.normCode] = true; });
+
+    var missing = Object.keys(state.liveDocCodes).filter(function(key){
+      if (key.indexOf(prefix) !== 0) return false;
+      var docCode = state.liveDocCodes[key];
+      var normCode = normalizeCode(docCode);
+      return !knownCodes[normCode] && !state.liveOnlyCards[key];
+    });
+    if (!missing.length) return;
+
+    Promise.all(missing.map(function(key){
+      var docCode = state.liveDocCodes[key];
+      return fetchJson(MATCHDATA_URL(eventId, docCode)).then(function(card){
+        state.liveOnlyCards[key] = { docCode: docCode, card: card };
+      }).catch(function(){
+        // couldn't fetch this one yet — try again on the next poll
+      });
+    })).then(function(){
+      if (String(eventId) === String(state.currentEventId)){
+        rebuildFromUnits(eventId);
+      }
+    });
+  }
+
+  function applyScheduleAndResults(eventId, scheduleRaw, resultsRaw, archiveRaw, liveIdsRaw){
+    var resultsByCode = {};
+    (resultsRaw || []).forEach(function(r){
+      resultsByCode[normalizeCode(r.documentCode)] = r.match_card;
+    });
+    state.results10ByCode = resultsByCode;
+
+    // IMPORTANT: each top-level schedule.json item can bundle MANY matches
+    // under one Competition.Unit array (not just a single match) — taking
+    // only Unit[0] silently drops the rest. Flatten fully.
+    var allUnits = [];
+    (scheduleRaw || []).forEach(function(item){
+      (item.Competition.Unit || []).forEach(function(u){ allUnits.push(u); });
+    });
+    state.lastUnits = dedupeUnits(allUnits);
+    state.lastArchiveItems = (archiveRaw || []).filter(function(item){ return item.match_card; });
+
+    var prefix = eventId + '::';
+    Object.keys(state.liveDocCodes).forEach(function(key){
+      if (key.indexOf(prefix) === 0) delete state.liveDocCodes[key];
+    });
+    (liveIdsRaw || []).forEach(function(item){
+      if (item && item.d) state.liveDocCodes[prefix + normalizeCode(item.d)] = item.d;
+    });
+
+    state.schedule = computeMergedMatches(eventId);
+    render();
+    fillMissingScores(eventId);
+    fetchLiveScores(eventId);
+    fetchOrphanLiveMatches(eventId);
+  }
+
+  function fetchLiveScores(eventId){
+    // Live matches get their score polled fresh every cycle (piggybacking
+    // on the same 30s live-refresh timer) — unlike completed matches, this
+    // is never written to the permanent cache since the score keeps changing.
+    var liveMatches = state.schedule.filter(function(m){ return m.status === 'live'; });
+    if (!liveMatches.length) return;
+
+    Promise.all(liveMatches.map(function(m){
+      return fetchJson(MATCHDATA_URL(eventId, fullDocCode(m.code))).then(function(card){
+        state.liveCardsByCode[eventId + '::' + m.normCode] = card;
+      }).catch(function(){
+        // couldn't get a live score this round — keep whatever we last had
+      });
+    })).then(function(){
+      if (String(eventId) === String(state.currentEventId)){
+        rebuildFromUnits(eventId);
+      }
+    });
+  }
+
+  function rebuildFromUnits(eventId){
+    // Re-run buildMatch/buildMatchFromArchiveItem after individual match
+    // cards arrive, so newly-known scores show up without a full reload.
+    state.schedule = computeMergedMatches(eventId);
+    render();
+  }
+
+  function fillMissingScores(eventId){
+    var candidates = state.schedule.filter(function(m){
+      var key = eventId + '::' + m.normCode;
+      // Never re-request a match whose score we already hold in memory,
+      // and never request one that's already being fetched right now
+      // (an overlapping refresh can otherwise fire while a slow batch
+      // from the previous cycle is still in flight).
+      return m.status === 'done' && !m.gameScores &&
+        !state.individualCardsByCode[key] && !state.inFlightCards[key];
+    });
+    if (!candidates.length) return;
+
+    candidates.forEach(function(m){
+      state.inFlightCards[eventId + '::' + m.normCode] = true;
+    });
+
+    // One IndexedDB transaction checks the whole batch at once, instead of
+    // a separate round-trip per match — this is the main win when an event
+    // has many completed matches without a score yet (e.g. group stages).
+    var cacheKeys = candidates.map(function(m){ return 'matchcard_' + eventId + '_' + m.normCode; });
+
+    idbGetMany(cacheKeys).then(function(cacheHits){
+      var anyResolved = false;
+      var stillMissing = [];
+
+      candidates.forEach(function(m){
+        var key = eventId + '::' + m.normCode;
+        var cacheKey = 'matchcard_' + eventId + '_' + m.normCode;
+        var hit = cacheHits[cacheKey];
+        if (hit && hit.data){
+          delete state.inFlightCards[key];
+          if (String(eventId) === String(state.currentEventId)){
+            state.individualCardsByCode[key] = hit.data;
+            anyResolved = true;
+          }
+        } else {
+          stillMissing.push(m);
+        }
+      });
+
+      if (anyResolved && String(eventId) === String(state.currentEventId)){
+        rebuildFromUnits(eventId);
+      }
+      if (!stillMissing.length) return;
+
+      var CONCURRENCY = 8;
+      var queue = stillMissing.slice();
+      var anyFetched = false;
+
+      function worker(){
+        var m = queue.shift();
+        if (!m) return Promise.resolve();
+        var key = eventId + '::' + m.normCode;
+        var cacheKey = 'matchcard_' + eventId + '_' + m.normCode;
+        return fetchJson(MATCHDATA_URL(eventId, fullDocCode(m.code))).then(function(card){
+          idbSet(cacheKey, {data: card, ts: Date.now()});
+          if (String(eventId) === String(state.currentEventId)){
+            state.individualCardsByCode[key] = card;
+            anyFetched = true;
+          }
+        }).catch(function(){
+          // no score available for this match either — leave as-is;
+          // clear the in-flight flag so a later refresh can retry it
+        }).then(function(){
+          delete state.inFlightCards[key];
+        }).then(worker);
+      }
+
+      var workers = [];
+      for (var i=0; i<CONCURRENCY; i++) workers.push(worker());
+      Promise.all(workers).then(function(){
+        if (anyFetched && String(eventId) === String(state.currentEventId)){
+          rebuildFromUnits(eventId);
+        }
+      });
+    });
+  }
+
+  function setRefreshing(on){
+    state.isRefreshing = on;
+    refreshBtn.classList.toggle('spinning', on);
+    refreshBtn.disabled = on;
+  }
+
+  // ---------------- Event wiring ----------------
+  refreshBtn.addEventListener('click', function(){
+    if (state.currentEventId) loadEventData(state.currentEventId);
+  });
+
+  var zoomSlider = document.getElementById('zoomSlider');
+  zoomSlider.addEventListener('input', function(){
+    document.documentElement.style.setProperty('--card-min', zoomSlider.value + 'px');
+  });
+  (function initZoom(){
+    var saved = localStorage.getItem('wtt_card_min');
+    if (saved){
+      zoomSlider.value = saved;
+      document.documentElement.style.setProperty('--card-min', saved + 'px');
+    }
+    zoomSlider.addEventListener('change', function(){
+      localStorage.setItem('wtt_card_min', zoomSlider.value);
+    });
+  })();
+
+  // ---------------- Auto refresh ----------------
+  setInterval(function(){
+    if (!state.currentEventId || state.isRefreshing) return;
+    var hasLive = state.schedule.some(function(m){ return m.status === 'live'; });
+    if (hasLive) loadEventData(state.currentEventId);
+  }, LIVE_POLL_MS);
+
+  // ---------------- Init ----------------
+  loadEventsList().then(function(){
+    if (state.currentEventId){
+      loadEventData(state.currentEventId);
+    } else {
+      feedEl.innerHTML = '<div class="empty-msg">' + SANDBOX_HINT + '</div>';
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
