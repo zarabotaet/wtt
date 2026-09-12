@@ -35,12 +35,19 @@ describe('MatchCard', () => {
   });
 
   it('marks the winning player row and trims trailing 0-0 games', () => {
-    render(<MatchCard match={baseMatch({
+    const { container } = render(<MatchCard match={baseMatch({
       status: 'done',
       gameScores: [[11, 11, 11, 0, 0], [5, 6, 7, 0, 0]],
       winnerIdx: 0,
     })} />);
-    expect(screen.queryByText('0')).not.toBeInTheDocument();
+    // Only 3 games were actually played (the trailing 0-0 pair is an
+    // unplayed slot, trimmed by trimTrailingEmptyGames) — each player's row
+    // should render exactly 3 per-game score spans, not 5. This does NOT
+    // assert "0" never appears anywhere: the losing side's total sets won
+    // can legitimately be 0 (e.g. a straight-sets loss) and the original
+    // prototype always displays that real number — hiding it would be an
+    // unrequested behavior change, not a trimming fix.
+    expect(container.querySelectorAll('.games .g')).toHaveLength(6); // 3 games x 2 players
     expect(screen.getByText('Finished')).toBeInTheDocument();
   });
 

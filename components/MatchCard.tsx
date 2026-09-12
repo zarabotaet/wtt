@@ -82,7 +82,7 @@ export function MatchCard({ match: m }: { match: Match }) {
                     {own.slice(0, maxGames).map((g, gi) => (
                       <span key={gi} className={`g${g > (opp[gi] || 0) ? ' won' : ''}`}>{g}</span>
                     ))}
-                    {setsWon > 0 && <span className="sets">{setsWon}</span>}
+                    <span className="sets">{setsWon}</span>
                   </span>
                 )}
               </div>
