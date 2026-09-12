@@ -23,7 +23,8 @@ describe('useLiveScoreUpdater', () => {
     vi.stubGlobal('fetch', fetchMock);
     const initial = [match('M1', 'done')];
     const { result } = renderHook(() => useLiveScoreUpdater('EVT1', initial));
-    expect(result.current).toEqual(initial);
+    expect(result.current.matches).toEqual(initial);
+    expect(result.current.isRefreshing).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -39,7 +40,7 @@ describe('useLiveScoreUpdater', () => {
       await vi.advanceTimersByTimeAsync(30000);
     });
     vi.useRealTimers();
-    await waitFor(() => expect(result.current[0].status).toBe('live'));
+    await waitFor(() => expect(result.current.matches[0].status).toBe('live'));
     expect(fetchMock).toHaveBeenCalledWith('/api/events/EVT1/live', { cache: 'no-store' });
   });
 
@@ -70,7 +71,35 @@ describe('useLiveScoreUpdater', () => {
       await vi.advanceTimersByTimeAsync(30000);
     });
     vi.useRealTimers();
-    await waitFor(() => expect(result.current[0].status).toBe('done'));
+    await waitFor(() => expect(result.current.matches[0].status).toBe('done'));
+    expect(fetchMock).toHaveBeenCalledWith('/api/events/EVT1/live', { cache: 'no-store' });
+  });
+
+  it('refresh() triggers an immediate fetch and toggles isRefreshing around it, independent of the poll timer', async () => {
+    const fresh = [match('M1', 'done')];
+    let resolveFetch: (value: { ok: true; json: () => Promise<Match[]> }) => void = () => {};
+    const fetchMock = vi.fn().mockReturnValue(
+      new Promise((resolve) => { resolveFetch = resolve; })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const initial = [match('M1', 'scheduled')];
+
+    const { result } = renderHook(() => useLiveScoreUpdater('EVT1', initial));
+    expect(result.current.isRefreshing).toBe(false);
+
+    let refreshPromise!: Promise<void>;
+    act(() => {
+      refreshPromise = result.current.refresh();
+    });
+    await waitFor(() => expect(result.current.isRefreshing).toBe(true));
+
+    await act(async () => {
+      resolveFetch({ ok: true, json: () => Promise.resolve(fresh) });
+      await refreshPromise;
+    });
+
+    expect(result.current.matches).toEqual(fresh);
+    expect(result.current.isRefreshing).toBe(false);
     expect(fetchMock).toHaveBeenCalledWith('/api/events/EVT1/live', { cache: 'no-store' });
   });
 });

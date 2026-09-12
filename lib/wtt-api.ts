@@ -90,3 +90,19 @@ export function fetchMatchCard(eventId: string, docCode: string, revalidateSecon
     revalidateSeconds
   );
 }
+
+// The ONLY endpoint listing every completed match of an active tournament
+// (see docs/API_REFERENCE.md §4b) — schedule.json's own Competition.Unit[]
+// only carries a partial, near-term window and silently drops matches from
+// days ago on a long-running tournament. match_card inside is always null
+// here; this is used purely to discover documentCodes schedule.json/the
+// archive endpoint don't have, each then point-fetched via fetchMatchCard.
+export function fetchOfficialResult(eventId: string, revalidateSeconds?: number): Promise<RawArchiveItem[]> {
+  return fetchJson(
+    resolveUrl(
+      `${BASE_URL}/websitecacheddata/${eventId}/officialresult/officialresult_minimal.json`,
+      revalidateSeconds
+    ),
+    revalidateSeconds
+  );
+}

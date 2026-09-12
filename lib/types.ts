@@ -90,3 +90,7 @@ export interface RawLiveIdsItem {
   d: string;
   s: string;
 }
+
+// officialresult_minimal.json's items have the same shape as an archive
+// item (documentCode + startDateLocal + match_card, always null for an
+// active tournament) — reusing RawArchiveItem avoids a duplicate type.

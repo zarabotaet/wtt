@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchEventsList, fetchSchedule, fetchMatchCard } from './wtt-api';
+import { fetchEventsList, fetchSchedule, fetchMatchCard, fetchOfficialResult } from './wtt-api';
 
 function mockFetchOnce(body: unknown, ok = true, status = 200) {
   vi.stubGlobal(
@@ -43,5 +43,15 @@ describe('fetchMatchCard', () => {
     await fetchMatchCard('12345', 'DOC-CODE');
     const [url] = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0] as [string];
     expect(url).toContain('/matchdata/12345/DOC-CODE.json');
+  });
+});
+
+describe('fetchOfficialResult', () => {
+  it('builds a cache-busted URL to officialresult_minimal.json for the eventId', async () => {
+    mockFetchOnce([]);
+    await fetchOfficialResult('12345');
+    const [url] = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0] as [string];
+    expect(url).toContain('/12345/officialresult/officialresult_minimal.json');
+    expect(url).toMatch(/[?&]q=\d+/);
   });
 });

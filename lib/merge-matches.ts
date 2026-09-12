@@ -201,6 +201,47 @@ export function buildOrphanLiveMatch(docCode: string, card: MatchCard | null): M
   };
 }
 
+export function buildOrphanDoneMatch(docCode: string, startDateLocal: string, card: MatchCard | null): Match {
+  // officialresult(_minimal).json is the one endpoint that lists EVERY
+  // completed match for a tournament — even a long-running active one,
+  // where schedule.json's own Competition.Unit[] only carries a partial,
+  // near-term window and silently drops matches from days ago. A code
+  // found here but missing from schedule.json/the archive endpoint gets
+  // its full card fetched by documentCode, and is trusted as finished
+  // regardless of what the score parses to (a walkover/retirement
+  // scoreline may not cleanly resolve via isDecided()) — officialresult
+  // already asserts the match is over.
+  const normCode = normalizeCode(docCode);
+  let players: Player[] = [];
+  let gameScores: [number[], number[]] | null = null;
+  let winnerIdx: 0 | 1 | null = null;
+  if (card?.competitiors && card.competitiors.length === 2) {
+    players = card.competitiors.map((c) => ({ name: c.competitiorName || '—', seed: null }));
+    const c0 = parseScores(card.competitiors[0].scores);
+    const c1 = parseScores(card.competitiors[1].scores);
+    gameScores = [c0, c1];
+    const { setsA, setsB } = computeSets(c0, c1);
+    if (setsA !== setsB) {
+      winnerIdx = setsA > setsB ? 0 : 1;
+    }
+  }
+  return {
+    code: docCode,
+    normCode,
+    startDate: startDateLocal,
+    endDate: startDateLocal,
+    status: 'done',
+    round: card?.subEventDescription || card?.subEventName || '',
+    subEvent: card?.subEventName,
+    table: card?.tableName || '',
+    venue: card?.venueName || '',
+    players,
+    gameScores,
+    winnerIdx,
+    isTbd: !hasRealPlayers(players),
+  };
+}
+
 export interface MergeInput {
   units: RawUnit[];
   archiveItems: RawArchiveItem[];
@@ -208,6 +249,7 @@ export interface MergeInput {
   liveDocCodesByNormCode: Record<string, string>;
   liveCardsByNormCode: Record<string, MatchCard>;
   orphanLiveCards: Record<string, { docCode: string; card: MatchCard | null }>;
+  orphanDoneCards: Record<string, { docCode: string; startDateLocal: string; card: MatchCard | null }>;
 }
 
 function findResultCard(
@@ -226,6 +268,7 @@ export function computeMergedMatches(input: MergeInput): Match[] {
     liveDocCodesByNormCode,
     liveCardsByNormCode,
     orphanLiveCards,
+    orphanDoneCards,
   } = input;
 
   const scheduleMatches = units.map((u) =>
@@ -256,6 +299,15 @@ export function computeMergedMatches(input: MergeInput): Match[] {
   Object.entries(orphanLiveCards).forEach(([normCode, entry]) => {
     if (!merged[normCode]) {
       merged[normCode] = buildOrphanLiveMatch(entry.docCode, entry.card);
+    }
+  });
+
+  // A completed match officialresult.json knows about that schedule.json
+  // and the archive endpoint both have no entry for at all (see
+  // buildOrphanDoneMatch above for why this endpoint exists).
+  Object.entries(orphanDoneCards).forEach(([normCode, entry]) => {
+    if (!merged[normCode]) {
+      merged[normCode] = buildOrphanDoneMatch(entry.docCode, entry.startDateLocal, entry.card);
     }
   });
 

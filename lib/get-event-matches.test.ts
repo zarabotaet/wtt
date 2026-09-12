@@ -7,9 +7,10 @@ vi.mock('./wtt-api', () => ({
   fetchArchive: vi.fn(),
   fetchLiveIds: vi.fn(),
   fetchMatchCard: vi.fn(),
+  fetchOfficialResult: vi.fn(),
 }));
 
-import { fetchSchedule, fetchResults10, fetchArchive, fetchLiveIds, fetchMatchCard } from './wtt-api';
+import { fetchSchedule, fetchResults10, fetchArchive, fetchLiveIds, fetchMatchCard, fetchOfficialResult } from './wtt-api';
 import { getEventMatches } from './get-event-matches';
 
 const EVENT_ID = 'EVT1';
@@ -33,6 +34,7 @@ beforeEach(() => {
   vi.mocked(fetchResults10).mockResolvedValue([] as RawResults10Item[]);
   vi.mocked(fetchArchive).mockResolvedValue([] as RawArchiveItem[]);
   vi.mocked(fetchLiveIds).mockResolvedValue([] as RawLiveIdsItem[]);
+  vi.mocked(fetchOfficialResult).mockResolvedValue([] as RawArchiveItem[]);
   vi.mocked(fetchMatchCard).mockRejectedValue(new Error('not mocked for this match'));
 });
 
@@ -130,5 +132,47 @@ describe('getEventMatches', () => {
     vi.mocked(fetchSchedule).mockResolvedValue({ not: 'an array' });
     const matches = await getEventMatches(EVENT_ID);
     expect(matches).toEqual([]);
+  });
+
+  it('discovers a completed match via officialresult.json that schedule.json never listed at all (regression: schedule.json only carries a partial window on a long-running tournament)', async () => {
+    // schedule.json only knows about one recent match ...
+    vi.mocked(fetchSchedule).mockResolvedValue([{ Competition: { Unit: [unit('RECENT', 'Official', ['A', 'B'])] } }]);
+    // ... but officialresult.json (the full completed-match list) knows
+    // about an older one schedule.json has already dropped.
+    vi.mocked(fetchOfficialResult).mockResolvedValue([
+      { documentCode: 'OLDDONE', startDateLocal: '2026-09-01T09:00:00', match_card: null },
+    ] as RawArchiveItem[]);
+    vi.mocked(fetchMatchCard).mockImplementation(async (_eventId, docCode) => ({
+      competitiors: [
+        { competitiorName: docCode === 'OLDDONE' ? 'Old Winner' : 'winner', scores: '11,11,11,0,0' },
+        { competitiorName: docCode === 'OLDDONE' ? 'Old Loser' : 'loser', scores: '5,6,7,0,0' },
+      ],
+      matchConfig: { bestOfXGames: 5 },
+    }));
+
+    const matches = await getEventMatches(EVENT_ID);
+    expect(matches.map((m) => m.normCode).sort()).toEqual(['OLDDONE', 'RECENT']);
+    const oldDone = matches.find((m) => m.normCode === 'OLDDONE');
+    expect(oldDone?.status).toBe('done');
+    expect(oldDone?.startDate).toBe('2026-09-01T09:00:00');
+    expect(oldDone?.players.map((p) => p.name)).toEqual(['Old Winner', 'Old Loser']);
+  });
+
+  it('does not re-fetch an officialresult.json code that schedule.json already covers', async () => {
+    vi.mocked(fetchSchedule).mockResolvedValue([{ Competition: { Unit: [unit('KNOWN', 'Official', ['A', 'B'])] } }]);
+    vi.mocked(fetchOfficialResult).mockResolvedValue([
+      { documentCode: 'KNOWN', startDateLocal: '2026-09-01T09:00:00', match_card: null },
+    ] as RawArchiveItem[]);
+    vi.mocked(fetchMatchCard).mockImplementation(async (_eventId, docCode) => {
+      expect(docCode).not.toBe('KNOWN'); // schedule.json's own missing-score fill uses the full padded code, not the bare "KNOWN"
+      return {
+        competitiors: [{ competitiorName: 'A', scores: '11,11,11,0,0' }, { competitiorName: 'B', scores: '5,6,7,0,0' }],
+        matchConfig: { bestOfXGames: 5 },
+      };
+    });
+
+    const matches = await getEventMatches(EVENT_ID);
+    expect(matches).toHaveLength(1);
+    expect(matches[0].normCode).toBe('KNOWN');
   });
 });

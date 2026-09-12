@@ -1,12 +1,19 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Match } from '@/lib/types';
 import { idbGet, idbSet } from '@/lib/client-cache';
 
 const POLL_MS = 30000;
 
-export function useLiveScoreUpdater(eventId: string, initialMatches: Match[]): Match[] {
+export interface LiveScoreUpdater {
+  matches: Match[];
+  refresh: () => Promise<void>;
+  isRefreshing: boolean;
+}
+
+export function useLiveScoreUpdater(eventId: string, initialMatches: Match[]): LiveScoreUpdater {
   const [matches, setMatches] = useState(initialMatches);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const cacheKey = `matches_${eventId}`;
   // Poll unless the tournament is already fully concluded (every match
   // done) — NOT merely "unless nothing is live yet", which would freeze a
@@ -19,29 +26,35 @@ export function useLiveScoreUpdater(eventId: string, initialMatches: Match[]): M
     idbSet(cacheKey, matches);
   }, [matches, cacheKey]);
 
+  const poll = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/live`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const fresh: Match[] = await res.json();
+      isConcludedRef.current = fresh.length > 0 && fresh.every((m) => m.status === 'done');
+      setMatches(fresh);
+    } catch {
+      // Network hiccup or WTT API failure — fall back to the last
+      // successfully polled state instead of showing nothing.
+      const cached = await idbGet<Match[]>(cacheKey);
+      if (cached) setMatches(cached);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [eventId, cacheKey]);
+
   useEffect(() => {
     let cancelled = false;
-    const interval = setInterval(async () => {
-      if (isConcludedRef.current) return;
-      try {
-        const res = await fetch(`/api/events/${eventId}/live`, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const fresh: Match[] = await res.json();
-        if (cancelled) return;
-        isConcludedRef.current = fresh.length > 0 && fresh.every((m) => m.status === 'done');
-        setMatches(fresh);
-      } catch {
-        // Network hiccup or WTT API failure — fall back to the last
-        // successfully polled state instead of showing nothing.
-        const cached = await idbGet<Match[]>(cacheKey);
-        if (!cancelled && cached) setMatches(cached);
-      }
+    const interval = setInterval(() => {
+      if (isConcludedRef.current || cancelled) return;
+      poll();
     }, POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [eventId, cacheKey]);
+  }, [poll]);
 
-  return matches;
+  return { matches, refresh: poll, isRefreshing };
 }

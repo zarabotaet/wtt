@@ -8,7 +8,7 @@ import { SectionHeader } from './SectionHeader';
 import { MatchCard } from './MatchCard';
 
 export function MatchFeed({ eventId, initialMatches }: { eventId: string; initialMatches: Match[] }) {
-  const matches = useLiveScoreUpdater(eventId, initialMatches);
+  const { matches, refresh, isRefreshing } = useLiveScoreUpdater(eventId, initialMatches);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
 
   const options = useMemo(() => deriveFilterOptions(matches), [matches]);
@@ -25,6 +25,20 @@ export function MatchFeed({ eventId, initialMatches }: { eventId: string; initia
         <span><b>{live.length}</b> live</span>
         <span><b>{scheduled.length}</b> upcoming</span>
         <span><b>{done.length}</b> completed</span>
+        <div className="spacer" />
+        <button
+          type="button"
+          className={`refresh-btn${isRefreshing ? ' spinning' : ''}`}
+          onClick={() => refresh()}
+          disabled={isRefreshing}
+          aria-label="Refresh"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+            <path d="M21 3v6h-6" />
+          </svg>
+          <span>Refresh</span>
+        </button>
       </div>
       <main>
         <div className="feed">

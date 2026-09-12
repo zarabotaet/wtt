@@ -202,7 +202,7 @@ describe('buildOrphanLiveMatch', () => {
   });
 });
 
-import { computeMergedMatches } from './merge-matches';
+import { buildOrphanDoneMatch, computeMergedMatches } from './merge-matches';
 
 describe('computeMergedMatches', () => {
   const unit = (code: string, overrides: Partial<RawUnit> = {}): RawUnit => ({
@@ -229,6 +229,7 @@ describe('computeMergedMatches', () => {
       liveDocCodesByNormCode: {},
       liveCardsByNormCode: {},
       orphanLiveCards: {},
+      orphanDoneCards: {},
     });
     expect(matches).toHaveLength(1);
     expect(matches[0].status).toBe('done');
@@ -245,6 +246,7 @@ describe('computeMergedMatches', () => {
       liveDocCodesByNormCode: { M1: 'M1', M2: 'M2' },
       liveCardsByNormCode: {},
       orphanLiveCards: {},
+      orphanDoneCards: {},
     });
     const m1 = matches.find((m) => m.normCode === 'M1');
     const m2 = matches.find((m) => m.normCode === 'M2');
@@ -265,9 +267,54 @@ describe('computeMergedMatches', () => {
           card: { competitiors: [{ competitiorName: 'A', scores: '11,7,0,0,0' }, { competitiorName: 'B', scores: '9,5,0,0,0' }] },
         },
       },
+      orphanDoneCards: {},
     });
     expect(matches).toHaveLength(1);
     expect(matches[0].normCode).toBe('ORPHAN1');
     expect(matches[0].status).toBe('live');
+  });
+
+  it('adds an orphan done match that officialresult.json knows about but schedule.json/archive have no entry for', () => {
+    const matches = computeMergedMatches({
+      units: [],
+      archiveItems: [],
+      resultsByCode: {},
+      liveDocCodesByNormCode: {},
+      liveCardsByNormCode: {},
+      orphanLiveCards: {},
+      orphanDoneCards: {
+        DONE1: {
+          docCode: 'DONE1',
+          startDateLocal: '2026-09-05T09:00:00',
+          card: {
+            competitiors: [{ competitiorName: 'A', scores: '11,11,11,0,0' }, { competitiorName: 'B', scores: '5,6,7,0,0' }],
+            matchConfig: { bestOfXGames: 5 },
+          },
+        },
+      },
+    });
+    expect(matches).toHaveLength(1);
+    expect(matches[0].normCode).toBe('DONE1');
+    expect(matches[0].status).toBe('done');
+    expect(matches[0].startDate).toBe('2026-09-05T09:00:00');
+    expect(matches[0].winnerIdx).toBe(0);
+  });
+});
+
+describe('buildOrphanDoneMatch', () => {
+  it('is always status done, trusting officialresult.json over score-decided detection', () => {
+    // A walkover/retirement scoreline may not cleanly resolve via
+    // isDecided() (e.g. sets tied 1-1 with no further games played) — the
+    // match is still over, because officialresult.json already says so.
+    const m = buildOrphanDoneMatch('DOC1', '2026-09-05T09:00:00', {
+      competitiors: [{ competitiorName: 'A', scores: '11,7,0,0,0' }, { competitiorName: 'B', scores: '9,11,0,0,0' }],
+    });
+    expect(m.status).toBe('done');
+  });
+
+  it('carries the real startDateLocal instead of a live-orphan placeholder timestamp', () => {
+    const m = buildOrphanDoneMatch('DOC1', '2026-09-05T09:00:00', null);
+    expect(m.startDate).toBe('2026-09-05T09:00:00');
+    expect(m.endDate).toBe('2026-09-05T09:00:00');
   });
 });

@@ -1,4 +1,4 @@
-import { fetchArchive, fetchLiveIds, fetchMatchCard, fetchResults10, fetchSchedule } from './wtt-api';
+import { fetchArchive, fetchLiveIds, fetchMatchCard, fetchOfficialResult, fetchResults10, fetchSchedule } from './wtt-api';
 import { computeMergedMatches, dedupeUnits, fullDocCode, normalizeCode } from './merge-matches';
 import type { Match, MatchCard, RawUnit } from './types';
 
@@ -19,11 +19,12 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 }
 
 export async function getEventMatches(eventId: string, revalidateSeconds?: number): Promise<Match[]> {
-  const [scheduleRaw, results10Raw, archiveRaw, liveIdsRaw] = await Promise.all([
+  const [scheduleRaw, results10Raw, archiveRaw, liveIdsRaw, officialResultRaw] = await Promise.all([
     fetchSchedule(eventId, revalidateSeconds),
     fetchResults10(eventId, revalidateSeconds).catch(() => []),
     fetchArchive(eventId, revalidateSeconds).catch(() => []),
     fetchLiveIds(eventId, revalidateSeconds).catch(() => []),
+    fetchOfficialResult(eventId, revalidateSeconds).catch(() => []),
   ]);
 
   // IMPORTANT: each schedule.json item can bundle MANY matches under one
@@ -46,6 +47,41 @@ export async function getEventMatches(eventId: string, revalidateSeconds?: numbe
     if (item?.d) liveDocCodesByNormCode[normalizeCode(item.d)] = item.d;
   });
 
+  // officialresult(_minimal).json lists EVERY completed match of the
+  // tournament — unlike schedule.json, which only carries a partial,
+  // near-term window and silently drops matches from days ago once a
+  // tournament has run long enough. Anything it lists that schedule.json
+  // and the archive endpoint both have no entry for gets its own matchdata/
+  // card fetched individually, same concurrency-limited pattern as the
+  // other point lookups below.
+  const knownScheduleCodes = new Set(units.map((u) => normalizeCode(u.Code)));
+  const knownArchiveCodes = new Set(archiveItems.map((item) => normalizeCode(item.documentCode)));
+  const officialResultCandidates = (Array.isArray(officialResultRaw) ? officialResultRaw : []).filter(
+    (item) => {
+      const normCode = normalizeCode(item.documentCode);
+      return !knownScheduleCodes.has(normCode) && !knownArchiveCodes.has(normCode);
+    }
+  );
+  const orphanDoneEntries = await mapLimit(officialResultCandidates, MISSING_SCORE_CONCURRENCY, async (item) => {
+    const normCode = normalizeCode(item.documentCode);
+    try {
+      return [
+        normCode,
+        {
+          docCode: item.documentCode,
+          startDateLocal: item.startDateLocal,
+          card: await fetchMatchCard(eventId, item.documentCode, revalidateSeconds),
+        },
+      ] as const;
+    } catch {
+      return null; // try again next regeneration
+    }
+  });
+  const orphanDoneCards: Record<string, { docCode: string; startDateLocal: string; card: MatchCard | null }> = {};
+  orphanDoneEntries.forEach((entry) => {
+    if (entry) orphanDoneCards[entry[0]] = entry[1];
+  });
+
   // Pass 1: merge without fresh live cards, just to see which matches come
   // out flagged live (via ScheduleStatus or the livematchids.json override).
   const firstPass = computeMergedMatches({
@@ -55,6 +91,7 @@ export async function getEventMatches(eventId: string, revalidateSeconds?: numbe
     liveDocCodesByNormCode,
     liveCardsByNormCode: {},
     orphanLiveCards: {},
+    orphanDoneCards,
   });
 
   const codeByNormCode: Record<string, string> = {};
@@ -101,6 +138,7 @@ export async function getEventMatches(eventId: string, revalidateSeconds?: numbe
     liveDocCodesByNormCode,
     liveCardsByNormCode,
     orphanLiveCards,
+    orphanDoneCards,
   });
 
   // Completed matches without a score yet (results10 only covers the last
@@ -127,6 +165,7 @@ export async function getEventMatches(eventId: string, revalidateSeconds?: numbe
         liveDocCodesByNormCode,
         liveCardsByNormCode,
         orphanLiveCards,
+        orphanDoneCards,
       });
     }
   }
