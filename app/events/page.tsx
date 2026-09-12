@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { fetchEventsList } from '@/lib/wtt-api';
 import { normalizeEventsList } from '@/lib/events';
 import { EventCombobox } from '@/components/EventCombobox';
@@ -16,6 +17,13 @@ export default async function EventsPage() {
     <main>
       <h1>Tournaments</h1>
       <EventCombobox events={events} />
+      <ul className="event-list">
+        {events.map((e) => (
+          <li key={e.eventId}>
+            <Link href={`/events/${e.eventId}`}>{e.eventName}</Link>
+          </li>
+        ))}
+      </ul>
     </main>
   );
 }

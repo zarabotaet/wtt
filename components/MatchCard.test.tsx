@@ -55,4 +55,11 @@ describe('MatchCard', () => {
     render(<MatchCard match={baseMatch({ status: 'done', gameScores: null })} />);
     expect(screen.getByText('Loading score…')).toBeInTheDocument();
   });
+
+  it('marks the date with a semantic <time> element carrying a dateTime attribute', () => {
+    const { container } = render(<MatchCard match={baseMatch({ status: 'scheduled', startDate: '2026-09-10T11:00:00' })} />);
+    const timeEl = container.querySelector('time.badge.upcoming');
+    expect(timeEl).not.toBeNull();
+    expect(timeEl?.getAttribute('dateTime')).toBe('2026-09-10T11:00:00');
+  });
 });

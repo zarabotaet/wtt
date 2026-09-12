@@ -104,4 +104,31 @@ describe('getEventMatches', () => {
       expect(m.winnerIdx).toBe(0);
     });
   });
+
+  it('sorts the returned matches future-to-past, matching the prototype behavior', async () => {
+    const units = [
+      unit('EARLY', 'Official', ['A1', 'A2']),
+      unit('LATE', 'Official', ['B1', 'B2']),
+    ];
+    units[0].StartDate = '2026-09-01T10:00:00';
+    units[1].StartDate = '2026-09-10T10:00:00';
+    vi.mocked(fetchSchedule).mockResolvedValue([{ Competition: { Unit: units } }]);
+    vi.mocked(fetchMatchCard).mockImplementation(async () => ({
+      competitiors: [
+        { competitiorName: 'winner', scores: '11,11,11,0,0' },
+        { competitiorName: 'loser', scores: '5,6,7,0,0' },
+      ],
+      matchConfig: { bestOfXGames: 5 },
+    }));
+
+    const matches = await getEventMatches(EVENT_ID);
+    expect(matches.map((m) => m.normCode)).toEqual(['LATE', 'EARLY']);
+  });
+
+  it('tolerates a malformed (non-array) schedule response instead of throwing', async () => {
+    // @ts-expect-error deliberately malformed to simulate WTT's undocumented API misbehaving
+    vi.mocked(fetchSchedule).mockResolvedValue({ not: 'an array' });
+    const matches = await getEventMatches(EVENT_ID);
+    expect(matches).toEqual([]);
+  });
 });

@@ -30,12 +30,19 @@ function resolveUrl(url: string, revalidateSeconds?: number): string {
   return revalidateSeconds === undefined ? cacheBust(url) : url;
 }
 
+export class WttApiError extends Error {
+  constructor(public status: number, url: string) {
+    super(`HTTP ${status} for ${url}`);
+    this.name = 'WttApiError';
+  }
+}
+
 async function fetchJson<T>(url: string, revalidateSeconds?: number): Promise<T> {
   const res = await fetch(
     url,
     revalidateSeconds === undefined ? { cache: 'no-store' } : { next: { revalidate: revalidateSeconds } }
   );
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  if (!res.ok) throw new WttApiError(res.status, url);
   return res.json() as Promise<T>;
 }
 

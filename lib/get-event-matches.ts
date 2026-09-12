@@ -30,8 +30,8 @@ export async function getEventMatches(eventId: string, revalidateSeconds?: numbe
   // Competition.Unit array, not a single match — taking only Unit[0]
   // silently drops the rest (see docs/API_REFERENCE.md §2).
   const allUnits: RawUnit[] = [];
-  scheduleRaw.forEach((item) => {
-    (item.Competition.Unit || []).forEach((u) => allUnits.push(u));
+  (Array.isArray(scheduleRaw) ? scheduleRaw : []).forEach((item) => {
+    (item.Competition?.Unit || []).forEach((u) => allUnits.push(u));
   });
   const units = dedupeUnits(allUnits);
   const archiveItems = archiveRaw.filter((item) => item.match_card);
@@ -130,6 +130,13 @@ export async function getEventMatches(eventId: string, revalidateSeconds?: numbe
       });
     }
   }
+
+  // Sort like the prototype did (sortKey(b) - sortKey(a): future → past).
+  // String comparison is safe and hydration-consistent here because every
+  // startDate is either the API's own "YYYY-MM-DDTHH:mm:ss" (zero-padded,
+  // lexicographic order == chronological order) or an orphan-live match's
+  // new Date().toISOString() stamp (also zero-padded ISO, same ordering).
+  matches.sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''));
 
   return matches;
 }

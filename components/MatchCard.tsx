@@ -44,9 +44,18 @@ export function MatchCard({ match: m }: { match: Match }) {
       </span>
     );
   } else if (m.status === 'done') {
-    badge = <span className="badge done" title={`Finished: ${formatExact(m.endDate || m.startDate)}`}>Finished</span>;
+    const finishedAt = m.endDate || m.startDate;
+    badge = (
+      <time className="badge done" dateTime={finishedAt} title={`Finished: ${formatExact(finishedAt)}`}>
+        Finished
+      </time>
+    );
   } else {
-    badge = <span className="badge upcoming" title={formatExact(m.startDate)}>{formatUpcomingTime(m.startDate)}</span>;
+    badge = (
+      <time className="badge upcoming" dateTime={m.startDate} title={formatExact(m.startDate)}>
+        {formatUpcomingTime(m.startDate)}
+      </time>
+    );
   }
 
   const maxGames = m.gameScores ? trimTrailingEmptyGames(m.gameScores) : 0;

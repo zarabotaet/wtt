@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
 import { getEventMatches } from '@/lib/get-event-matches';
-import { fetchEventsList } from '@/lib/wtt-api';
+import { fetchEventsList, WttApiError } from '@/lib/wtt-api';
 import { normalizeEventsList } from '@/lib/events';
 import { EventCombobox } from '@/components/EventCombobox';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -24,10 +25,13 @@ export async function generateMetadata({ params }: { params: { eventId: string }
 }
 
 export default async function EventPage({ params }: { params: { eventId: string } }) {
-  const [matches, eventsRaw] = await Promise.all([
-    getEventMatches(params.eventId, 60),
-    fetchEventsList(3600),
-  ]);
+  const matchesPromise = getEventMatches(params.eventId, 60).catch((err) => {
+    if (err instanceof WttApiError && (err.status === 404 || err.status === 403)) {
+      notFound();
+    }
+    throw err;
+  });
+  const [matches, eventsRaw] = await Promise.all([matchesPromise, fetchEventsList(3600)]);
   const events = normalizeEventsList(eventsRaw);
 
   const jsonLd = matches.slice(0, 20).map((m) => ({
@@ -41,7 +45,10 @@ export default async function EventPage({ params }: { params: { eventId: string 
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
+      />
       <header className="bar">
         <div className="brand">
           <span className="dot" />

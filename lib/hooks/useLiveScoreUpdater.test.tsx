@@ -18,13 +18,29 @@ afterEach(() => {
 });
 
 describe('useLiveScoreUpdater', () => {
-  it('returns the initial matches immediately and does not poll when nothing is live', () => {
+  it('does not poll once the tournament is fully concluded', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    const initial = [match('M1', 'scheduled')];
+    const initial = [match('M1', 'done')];
     const { result } = renderHook(() => useLiveScoreUpdater('EVT1', initial));
     expect(result.current).toEqual(initial);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('polls even when nothing is live yet, as long as the tournament has not concluded', async () => {
+    vi.useFakeTimers();
+    const fresh = [match('M1', 'live')];
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(fresh) });
+    vi.stubGlobal('fetch', fetchMock);
+    const initial = [match('M1', 'scheduled')];
+
+    const { result } = renderHook(() => useLiveScoreUpdater('EVT1', initial));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+    vi.useRealTimers();
+    await waitFor(() => expect(result.current[0].status).toBe('live'));
+    expect(fetchMock).toHaveBeenCalledWith('/api/events/EVT1/live', { cache: 'no-store' });
   });
 
   it('polls the live API route and swaps in the fresh matches when a live match is present', async () => {
