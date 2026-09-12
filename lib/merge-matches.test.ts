@@ -75,6 +75,16 @@ describe('dedupeUnits', () => {
     const m1 = result.find((u) => u.Code === 'M1');
     expect(m1?.ScheduleStatus).toBe('Official');
   });
+  it('prefers higher-priority status even when lower-priority appears later in array', () => {
+    const units: RawUnit[] = [
+      { Code: 'M3', ScheduleStatus: 'Official', StartDate: '', EndDate: '' },
+      { Code: 'M3', ScheduleStatus: 'Scheduled', StartDate: '', EndDate: '' },
+    ];
+    const result = dedupeUnits(units);
+    expect(result).toHaveLength(1);
+    const m3 = result.find((u) => u.Code === 'M3');
+    expect(m3?.ScheduleStatus).toBe('Official');
+  });
 });
 
 describe('hasRealPlayers', () => {
