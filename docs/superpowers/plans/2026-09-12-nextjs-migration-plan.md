@@ -1050,40 +1050,74 @@ function cacheBust(url: string): string {
   return `${url}${url.includes('?') ? '&' : '?'}q=${Date.now()}`;
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { cache: 'no-store' });
+// The `?q=` cache-buster only matters when a fetch intentionally bypasses
+// all caching (cache: 'no-store') — it defeats the *caller's own* HTTP
+// cache, which the original client-side prototype needed to fight the
+// browser's cache. On the server, once a fetch instead asks Next.js's
+// Data Cache to reuse a response for `revalidateSeconds`, a fresh
+// timestamp baked into the URL on every call would mean every "cached"
+// entry only ever matches itself, defeating the very caching being asked
+// for — so it must be omitted whenever a revalidate window is requested.
+function resolveUrl(url: string, revalidateSeconds?: number): string {
+  return revalidateSeconds === undefined ? cacheBust(url) : url;
+}
+
+async function fetchJson<T>(url: string, revalidateSeconds?: number): Promise<T> {
+  const res = await fetch(
+    url,
+    revalidateSeconds === undefined ? { cache: 'no-store' } : { next: { revalidate: revalidateSeconds } }
+  );
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.json() as Promise<T>;
 }
 
-export function fetchEventsList(): Promise<RawEventListItem[]> {
-  return fetchJson(`${BASE_URL}/websitestaticapifiles/general/wtt_upcoming_only_events_list.json`);
+export function fetchEventsList(revalidateSeconds?: number): Promise<RawEventListItem[]> {
+  return fetchJson(`${BASE_URL}/websitestaticapifiles/general/wtt_upcoming_only_events_list.json`, revalidateSeconds);
 }
 
-export function fetchSchedule(eventId: string): Promise<RawScheduleItem[]> {
-  return fetchJson(cacheBust(`${BASE_URL}/websitecacheddata/${eventId}/schedule/schedule.json`));
-}
-
-export function fetchResults10(eventId: string): Promise<RawResults10Item[]> {
+export function fetchSchedule(eventId: string, revalidateSeconds?: number): Promise<RawScheduleItem[]> {
   return fetchJson(
-    cacheBust(`${BASE_URL}/websitestaticapifiles/${eventId}/${eventId}_take_10_official_results.json`)
+    resolveUrl(`${BASE_URL}/websitecacheddata/${eventId}/schedule/schedule.json`, revalidateSeconds),
+    revalidateSeconds
   );
 }
 
-export function fetchArchive(eventId: string): Promise<RawArchiveItem[]> {
-  return fetchJson(cacheBust(`${BASE_URL}/websitearchivedresults/${eventId}/officialresult/officialresult.json`));
-}
-
-export function fetchLiveIds(eventId: string): Promise<RawLiveIdsItem[]> {
+export function fetchResults10(eventId: string, revalidateSeconds?: number): Promise<RawResults10Item[]> {
   return fetchJson(
-    cacheBust(`${BASE_URL}/websitestaticapifiles/running-events/${eventId}/${eventId}_livematchids.json`)
+    resolveUrl(
+      `${BASE_URL}/websitestaticapifiles/${eventId}/${eventId}_take_10_official_results.json`,
+      revalidateSeconds
+    ),
+    revalidateSeconds
   );
 }
 
-export function fetchMatchCard(eventId: string, docCode: string): Promise<MatchCard> {
-  return fetchJson(cacheBust(`${BASE_URL}/matchdata/${eventId}/${docCode}.json`));
+export function fetchArchive(eventId: string, revalidateSeconds?: number): Promise<RawArchiveItem[]> {
+  return fetchJson(
+    resolveUrl(`${BASE_URL}/websitearchivedresults/${eventId}/officialresult/officialresult.json`, revalidateSeconds),
+    revalidateSeconds
+  );
+}
+
+export function fetchLiveIds(eventId: string, revalidateSeconds?: number): Promise<RawLiveIdsItem[]> {
+  return fetchJson(
+    resolveUrl(
+      `${BASE_URL}/websitestaticapifiles/running-events/${eventId}/${eventId}_livematchids.json`,
+      revalidateSeconds
+    ),
+    revalidateSeconds
+  );
+}
+
+export function fetchMatchCard(eventId: string, docCode: string, revalidateSeconds?: number): Promise<MatchCard> {
+  return fetchJson(
+    resolveUrl(`${BASE_URL}/matchdata/${eventId}/${docCode}.json`, revalidateSeconds),
+    revalidateSeconds
+  );
 }
 ```
+
+**Architectural note added after Task 16 review:** every exported fetcher now takes an optional trailing `revalidateSeconds`. Omitted (as all pre-Task-16 call sites do), it behaves exactly as before — `cache: 'no-store'`, always fresh, cache-busted URL. Passed a number, the fetch instead participates in Next.js's Data Cache with that revalidate window (and the URL is left stable so the cache can actually key on it) — this is what makes a page's `export const revalidate = N` mean anything for pages that go through this file, since a `cache: 'no-store'` fetch anywhere in a route forces the whole route to render dynamically on every request, silently defeating ISR regardless of the page's own `revalidate` export. See Task 16's ledger entry in the implementation record for the full reasoning. `lib/get-event-matches.ts` (Task 7) and every page/route built from Task 16 onward must thread this parameter through to get real ISR behavior.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -1357,12 +1391,12 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return results;
 }
 
-export async function getEventMatches(eventId: string): Promise<Match[]> {
+export async function getEventMatches(eventId: string, revalidateSeconds?: number): Promise<Match[]> {
   const [scheduleRaw, results10Raw, archiveRaw, liveIdsRaw] = await Promise.all([
-    fetchSchedule(eventId),
-    fetchResults10(eventId).catch(() => []),
-    fetchArchive(eventId).catch(() => []),
-    fetchLiveIds(eventId).catch(() => []),
+    fetchSchedule(eventId, revalidateSeconds),
+    fetchResults10(eventId, revalidateSeconds).catch(() => []),
+    fetchArchive(eventId, revalidateSeconds).catch(() => []),
+    fetchLiveIds(eventId, revalidateSeconds).catch(() => []),
   ]);
 
   // IMPORTANT: each schedule.json item can bundle MANY matches under one
@@ -1404,7 +1438,7 @@ export async function getEventMatches(eventId: string): Promise<Match[]> {
     const rawCode = codeByNormCode[normCode];
     if (!rawCode) return null;
     try {
-      return [normCode, await fetchMatchCard(eventId, fullDocCode(rawCode))] as const;
+      return [normCode, await fetchMatchCard(eventId, fullDocCode(rawCode), revalidateSeconds)] as const;
     } catch {
       return null; // keep whatever pass 1 already had
     }
@@ -1422,7 +1456,7 @@ export async function getEventMatches(eventId: string): Promise<Match[]> {
   );
   const orphanResults = await mapLimit(orphanEntries, MISSING_SCORE_CONCURRENCY, async ([normCode, docCode]) => {
     try {
-      return [normCode, { docCode, card: await fetchMatchCard(eventId, docCode) }] as const;
+      return [normCode, { docCode, card: await fetchMatchCard(eventId, docCode, revalidateSeconds) }] as const;
     } catch {
       return null; // try again next regeneration
     }
@@ -1449,7 +1483,7 @@ export async function getEventMatches(eventId: string): Promise<Match[]> {
   if (missing.length) {
     const filledEntries = await mapLimit(missing, MISSING_SCORE_CONCURRENCY, async (m) => {
       try {
-        return [m.normCode, await fetchMatchCard(eventId, fullDocCode(m.code))] as const;
+        return [m.normCode, await fetchMatchCard(eventId, fullDocCode(m.code), revalidateSeconds)] as const;
       } catch {
         return null; // no score available for this match either — leave as-is
       }
@@ -2634,7 +2668,7 @@ git commit -m "Add MatchFeed component composing filters, sections and live poll
 
 ```tsx
 // components/ThemeToggle.test.tsx
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThemeToggle } from './ThemeToggle';
@@ -2642,6 +2676,23 @@ import { ThemeToggle } from './ThemeToggle';
 beforeEach(() => {
   localStorage.clear();
   document.documentElement.removeAttribute('data-theme');
+  // jsdom doesn't implement window.matchMedia at all — ThemeToggle's
+  // effect calls it unconditionally, so without this mock every test
+  // would throw "window.matchMedia is not a function" before rendering.
+  vi.stubGlobal('matchMedia', vi.fn(() => ({
+    matches: false,
+    media: '',
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })));
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('ThemeToggle', () => {
@@ -2810,8 +2861,8 @@ export function ZoomSlider() {
         step={10}
         value={value}
         onChange={(e) => apply(Number(e.target.value))}
-        onMouseUp={() => localStorage.setItem(ZOOM_KEY, String(value))}
-        onTouchEnd={() => localStorage.setItem(ZOOM_KEY, String(value))}
+        onMouseUp={(e) => localStorage.setItem(ZOOM_KEY, (e.target as HTMLInputElement).value)}
+        onTouchEnd={(e) => localStorage.setItem(ZOOM_KEY, (e.target as HTMLInputElement).value)}
       />
     </div>
   );
@@ -2944,7 +2995,7 @@ export const metadata: Metadata = {
 };
 
 export default async function EventsPage() {
-  const events = normalizeEventsList(await fetchEventsList());
+  const events = normalizeEventsList(await fetchEventsList(3600));
   return (
     <main>
       <h1>Tournaments</h1>
@@ -2990,7 +3041,7 @@ import { normalizeEventsList } from '@/lib/events';
 export const revalidate = 3600;
 
 export default async function RootPage() {
-  const events = normalizeEventsList(await fetchEventsList());
+  const events = normalizeEventsList(await fetchEventsList(3600));
   if (events.length) {
     redirect(`/events/${events[0].eventId}`);
   }
@@ -3053,7 +3104,7 @@ import { Footer } from '@/components/Footer';
 export const revalidate = 60;
 
 export async function generateMetadata({ params }: { params: { eventId: string } }): Promise<Metadata> {
-  const events = normalizeEventsList(await fetchEventsList());
+  const events = normalizeEventsList(await fetchEventsList(3600));
   const event = events.find((e) => String(e.eventId) === String(params.eventId));
   const title = event ? `${event.eventName} — Matches & Results` : 'WTT Matches';
   const description = event ? `Live scores, schedule and results for ${event.eventName}.` : undefined;
@@ -3067,8 +3118,8 @@ export async function generateMetadata({ params }: { params: { eventId: string }
 
 export default async function EventPage({ params }: { params: { eventId: string } }) {
   const [matches, eventsRaw] = await Promise.all([
-    getEventMatches(params.eventId),
-    fetchEventsList(),
+    getEventMatches(params.eventId, 60),
+    fetchEventsList(3600),
   ]);
   const events = normalizeEventsList(eventsRaw);
 
@@ -3141,7 +3192,7 @@ import { normalizeEventsList } from '@/lib/events';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = process.env.NEXT_PUBLIC_SITE_URL || 'https://wtt-matches.vercel.app';
-  const events = normalizeEventsList(await fetchEventsList());
+  const events = normalizeEventsList(await fetchEventsList(3600));
   return [
     { url: `${base}/events`, changeFrequency: 'daily' },
     ...events.map((e) => ({
