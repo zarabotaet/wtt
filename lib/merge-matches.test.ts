@@ -107,3 +107,97 @@ describe('trimTrailingEmptyGames', () => {
     expect(trimTrailingEmptyGames([[11, 7, 11], [9, 11, 9]])).toBe(3);
   });
 });
+
+import { buildMatch, buildMatchFromArchiveItem, buildOrphanLiveMatch } from './merge-matches';
+import type { MatchCard, RawArchiveItem } from './types';
+
+describe('buildMatch', () => {
+  const baseUnit: RawUnit = {
+    Code: 'CODE1' + '-'.repeat(37),
+    ScheduleStatus: 'Scheduled',
+    StartDate: '2026-09-10T11:00:00',
+    EndDate: '2026-09-10T12:00:00',
+    StartList: {
+      Start: [
+        { Competitor: { Description: { TeamName: 'WANG Yidi' }, Seed: 1 } },
+        { Competitor: { Description: { TeamName: 'Dina MESHREF' }, Seed: 3 } },
+      ],
+    },
+    ItemDescription: [{ Value: "Women's Singles - Round of 32" }],
+    SubEvent: "Women's Singles",
+    VenueDescription: { LocationName: 'Table 3', VenueName: 'Macao East Asian Games Dome' },
+  };
+
+  it('maps players, round, table and venue from the raw unit', () => {
+    const m = buildMatch(baseUnit, null);
+    expect(m.players.map((p) => p.name)).toEqual(['WANG Yidi', 'Dina MESHREF']);
+    expect(m.round).toBe("Women's Singles - Round of 32");
+    expect(m.table).toBe('Table 3');
+    expect(m.venue).toBe('Macao East Asian Games Dome');
+    expect(m.status).toBe('scheduled');
+    expect(m.isTbd).toBe(false);
+  });
+
+  it('trusts a decided score over a stale ScheduleStatus (WTT can lag)', () => {
+    const card: MatchCard = {
+      competitiors: [{ scores: '11,11,11,0,0' }, { scores: '5,7,9,0,0' }],
+      matchConfig: { bestOfXGames: 5 },
+    };
+    const m = buildMatch({ ...baseUnit, ScheduleStatus: 'Start List' }, card);
+    expect(m.status).toBe('done');
+    expect(m.winnerIdx).toBe(0);
+  });
+
+  it('flags a bracket slot with no real players as TBD instead of dropping it', () => {
+    const tbdUnit: RawUnit = {
+      ...baseUnit,
+      StartList: { Start: [{ Competitor: { Description: { TeamName: undefined } } }] },
+    };
+    const m = buildMatch(tbdUnit, null);
+    expect(m.isTbd).toBe(true);
+  });
+});
+
+describe('buildMatchFromArchiveItem', () => {
+  it('builds a done match with full score from an archive item', () => {
+    const item: RawArchiveItem = {
+      documentCode: 'ARCHIVE1' + '-'.repeat(34),
+      startDateLocal: '2025-01-05T09:00:00',
+      match_card: {
+        competitiors: [
+          { competitiorName: 'Player A', scores: '11,11,9,11,0' },
+          { competitiorName: 'Player B', scores: '7,8,11,6,0' },
+        ],
+        matchConfig: { bestOfXGames: 5 },
+        subEventName: "Men's Doubles",
+        tableName: 'Table 1',
+        venueName: 'Venue X',
+      },
+    };
+    const m = buildMatchFromArchiveItem(item);
+    expect(m.status).toBe('done');
+    expect(m.winnerIdx).toBe(0);
+    expect(m.players.map((p) => p.name)).toEqual(['Player A', 'Player B']);
+  });
+});
+
+describe('buildOrphanLiveMatch', () => {
+  it('marks the match live when the score is not yet decided', () => {
+    const card: MatchCard = {
+      competitiors: [{ competitiorName: 'A', scores: '11,7,0,0,0' }, { competitiorName: 'B', scores: '9,11,0,0,0' }],
+      matchConfig: { bestOfXGames: 5 },
+    };
+    const m = buildOrphanLiveMatch('DOC123', card);
+    expect(m.status).toBe('live');
+  });
+
+  it('marks the match done when livematchids.json lags behind a finished score', () => {
+    const card: MatchCard = {
+      competitiors: [{ competitiorName: 'A', scores: '11,11,11,0,0' }, { competitiorName: 'B', scores: '5,6,7,0,0' }],
+      matchConfig: { bestOfXGames: 5 },
+    };
+    const m = buildOrphanLiveMatch('DOC123', card);
+    expect(m.status).toBe('done');
+    expect(m.winnerIdx).toBe(0);
+  });
+});
