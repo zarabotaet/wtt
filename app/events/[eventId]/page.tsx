@@ -3,8 +3,6 @@ import { notFound } from 'next/navigation';
 import { getEventMatches } from '@/lib/get-event-matches';
 import { fetchEventsList, WttApiError } from '@/lib/wtt-api';
 import { normalizeEventsList } from '@/lib/events';
-import { EventCombobox } from '@/components/EventCombobox';
-import { ThemeToggle } from '@/components/ThemeToggle';
 import { ZoomSlider } from '@/components/ZoomSlider';
 import { MatchFeed } from '@/components/MatchFeed';
 import { Footer } from '@/components/Footer';
@@ -49,16 +47,7 @@ export default async function EventPage({ params }: { params: { eventId: string 
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
       />
-      <header className="bar">
-        <div className="brand">
-          <span className="dot" />
-          Matches
-        </div>
-        <EventCombobox events={events} currentEventId={params.eventId} />
-        <div className="spacer" />
-        <ThemeToggle />
-      </header>
-      <MatchFeed eventId={params.eventId} initialMatches={matches} />
+      <MatchFeed eventId={params.eventId} initialMatches={matches} events={events} />
       <ZoomSlider />
       <Footer />
     </>

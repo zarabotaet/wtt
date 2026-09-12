@@ -160,8 +160,6 @@ header.bar{
 
 .filter-bar{
   display:flex; gap:8px; flex-wrap:wrap; align-items:center;
-  padding:10px 16px;
-  border-bottom:1px solid var(--border);
 }
 .filter-bar select{
   background:var(--surface);
@@ -283,8 +281,9 @@ main{ padding:20px 16px 140px; max-width:1600px; margin:0 auto; }
   header.bar{flex-wrap:wrap;}
   .event-select{order:1; flex:1 1 100%; max-width:none;}
   .brand{order:0;}
-  .refresh-btn{order:2;}
-  .icon-btn{order:2;}
+  .filter-bar{order:2; flex:1 1 100%;}
+  .refresh-btn{order:3;}
+  .icon-btn{order:3;}
   .zoom-ctrl{right:12px; bottom:12px; padding:7px 12px 7px 12px;}
   .zoom-ctrl input[type=range]{width:80px;}
 }

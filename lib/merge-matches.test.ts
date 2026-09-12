@@ -6,6 +6,7 @@ import {
   parseScores,
   computeSets,
   isDecided,
+  isGameComplete,
   dedupeUnits,
   hasRealPlayers,
   trimTrailingEmptyGames,
@@ -59,6 +60,32 @@ describe('computeSets / isDecided', () => {
   });
   it('is not decided when neither side has reached the majority', () => {
     expect(isDecided(1, 1, 5)).toBe(false);
+  });
+  it('does not count an in-progress (not-yet-finished) game toward either side\'s set count', () => {
+    // Two finished games (2-0), a third in progress at 5-3 — nobody has
+    // reached 11 with a 2-point lead yet, so it must NOT be counted as a
+    // third won set, or a still-live match would be misreported as
+    // already decided 3-0 (see docs bug report: this was exactly wrong).
+    const { setsA, setsB } = computeSets([11, 11, 5, 0, 0], [7, 8, 3, 0, 0]);
+    expect(setsA).toBe(2);
+    expect(setsB).toBe(0);
+    expect(isDecided(setsA, setsB, 5)).toBe(false);
+  });
+});
+
+describe('isGameComplete', () => {
+  it('is false below 11 points for either side', () => {
+    expect(isGameComplete(9, 5)).toBe(false);
+  });
+  it('is true at 11 with at least a 2-point lead', () => {
+    expect(isGameComplete(11, 7)).toBe(true);
+    expect(isGameComplete(11, 9)).toBe(true);
+  });
+  it('is false at 11-10 — deuce, not yet decided (needs a 2-point lead)', () => {
+    expect(isGameComplete(11, 10)).toBe(false);
+  });
+  it('is true beyond 11 once a 2-point lead is reached in deuce', () => {
+    expect(isGameComplete(13, 11)).toBe(true);
   });
 });
 

@@ -1,13 +1,23 @@
 'use client';
 import { useMemo, useState } from 'react';
-import type { Match } from '@/lib/types';
+import type { Match, NormalizedEvent } from '@/lib/types';
 import { applyFilters, deriveFilterOptions, EMPTY_FILTERS, type Filters } from '@/lib/filters';
 import { useLiveScoreUpdater } from '@/lib/hooks/useLiveScoreUpdater';
+import { EventCombobox } from './EventCombobox';
+import { ThemeToggle } from './ThemeToggle';
 import { FilterBar } from './FilterBar';
 import { SectionHeader } from './SectionHeader';
 import { MatchCard } from './MatchCard';
 
-export function MatchFeed({ eventId, initialMatches }: { eventId: string; initialMatches: Match[] }) {
+export function MatchFeed({
+  eventId,
+  initialMatches,
+  events,
+}: {
+  eventId: string;
+  initialMatches: Match[];
+  events: NormalizedEvent[];
+}) {
   const { matches, refresh, isRefreshing } = useLiveScoreUpdater(eventId, initialMatches);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
 
@@ -20,12 +30,19 @@ export function MatchFeed({ eventId, initialMatches }: { eventId: string; initia
 
   return (
     <>
-      <FilterBar options={options} filters={filters} onChange={setFilters} />
-      <div className="status-line">
-        <span><b>{live.length}</b> live</span>
-        <span><b>{scheduled.length}</b> upcoming</span>
-        <span><b>{done.length}</b> completed</span>
-        <div className="spacer" />
+      {/* Event switcher, filters and refresh live in the same sticky
+          header row as the theme toggle — on a narrow screen the header's
+          own flex-wrap keeps this whole group pinned to the top instead
+          of scrolling away, since filters/refresh/switch-event are the
+          controls someone actually wants reachable while scrolling a long
+          match list. */}
+      <header className="bar">
+        <div className="brand">
+          <span className="dot" />
+          Matches
+        </div>
+        <EventCombobox events={events} currentEventId={eventId} />
+        <FilterBar options={options} filters={filters} onChange={setFilters} />
         <button
           type="button"
           className={`refresh-btn${isRefreshing ? ' spinning' : ''}`}
@@ -39,6 +56,13 @@ export function MatchFeed({ eventId, initialMatches }: { eventId: string; initia
           </svg>
           <span>Refresh</span>
         </button>
+        <div className="spacer" />
+        <ThemeToggle />
+      </header>
+      <div className="status-line">
+        <span><b>{live.length}</b> live</span>
+        <span><b>{scheduled.length}</b> upcoming</span>
+        <span><b>{done.length}</b> completed</span>
       </div>
       <main>
         <div className="feed">

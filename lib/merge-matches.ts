@@ -32,9 +32,26 @@ export function parseScores(scoresStr: string | null | undefined): number[] {
     .filter((n) => !isNaN(n));
 }
 
+export function isGameComplete(scoreA: number, scoreB: number): boolean {
+  // Table tennis rule: first to 11, must win by at least 2 (extended
+  // deuce past 10-10). A live in-progress game's current point tally can
+  // have one side temporarily ahead (e.g. 5-3) without the game actually
+  // being finished — comparing raw numbers alone would wrongly count that
+  // as a won game, which can even make a still-live match look fully
+  // decided (e.g. 2 finished games + a leading in-progress 3rd reading as
+  // a false 3-0).
+  return Math.max(scoreA, scoreB) >= 11 && Math.abs(scoreA - scoreB) >= 2;
+}
+
 export function computeSets(scoresA: number[], scoresB: number[]): { setsA: number; setsB: number } {
-  const setsA = scoresA.filter((v, i) => v > (scoresB[i] || 0)).length;
-  const setsB = scoresB.filter((v, i) => v > (scoresA[i] || 0)).length;
+  let setsA = 0;
+  let setsB = 0;
+  scoresA.forEach((a, i) => {
+    const b = scoresB[i] || 0;
+    if (!isGameComplete(a, b)) return; // in-progress or unplayed — not decided yet
+    if (a > b) setsA++;
+    else if (b > a) setsB++;
+  });
   return { setsA, setsB };
 }
 

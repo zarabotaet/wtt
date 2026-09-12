@@ -1,5 +1,5 @@
 import type { Match } from '@/lib/types';
-import { trimTrailingEmptyGames } from '@/lib/merge-matches';
+import { isGameComplete, trimTrailingEmptyGames } from '@/lib/merge-matches';
 
 const SHORT_MONTH_NAMES = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
@@ -79,7 +79,10 @@ export function MatchCard({ match: m }: { match: Match }) {
             const isWinner = m.winnerIdx === idx;
             const own = m.gameScores?.[idx] ?? [];
             const opp = m.gameScores?.[(1 - idx) as 0 | 1] ?? [];
-            const setsWon = own.filter((v, i) => v > (opp[i] || 0)).length;
+            // Only count a game toward the sets tally once it's actually
+            // finished — a live match's in-progress final game can have
+            // one side temporarily ahead without the game being over.
+            const setsWon = own.filter((v, i) => isGameComplete(v, opp[i] || 0) && v > (opp[i] || 0)).length;
             return (
               <div key={idx} className={`player-row${isWinner ? ' winner' : ''}`}>
                 <span className="p-name">
@@ -89,7 +92,7 @@ export function MatchCard({ match: m }: { match: Match }) {
                 {m.gameScores && (
                   <span className="games">
                     {own.slice(0, maxGames).map((g, gi) => (
-                      <span key={gi} className={`g${g > (opp[gi] || 0) ? ' won' : ''}`}>{g}</span>
+                      <span key={gi} className={`g${isGameComplete(g, opp[gi] || 0) && g > (opp[gi] || 0) ? ' won' : ''}`}>{g}</span>
                     ))}
                     <span className="sets">{setsWon}</span>
                   </span>
