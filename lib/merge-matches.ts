@@ -200,3 +200,64 @@ export function buildOrphanLiveMatch(docCode: string, card: MatchCard | null): M
     isTbd: !hasRealPlayers(players),
   };
 }
+
+export interface MergeInput {
+  units: RawUnit[];
+  archiveItems: RawArchiveItem[];
+  resultsByCode: Record<string, MatchCard>;
+  liveDocCodesByNormCode: Record<string, string>;
+  liveCardsByNormCode: Record<string, MatchCard>;
+  orphanLiveCards: Record<string, { docCode: string; card: MatchCard | null }>;
+}
+
+function findResultCard(
+  normCode: string,
+  liveCardsByNormCode: Record<string, MatchCard>,
+  resultsByCode: Record<string, MatchCard>
+): MatchCard | null {
+  return liveCardsByNormCode[normCode] || resultsByCode[normCode] || null;
+}
+
+export function computeMergedMatches(input: MergeInput): Match[] {
+  const {
+    units,
+    archiveItems,
+    resultsByCode,
+    liveDocCodesByNormCode,
+    liveCardsByNormCode,
+    orphanLiveCards,
+  } = input;
+
+  const scheduleMatches = units.map((u) =>
+    buildMatch(u, findResultCard(normalizeCode(u.Code), liveCardsByNormCode, resultsByCode))
+  );
+  const archiveMatches = archiveItems.map(buildMatchFromArchiveItem);
+
+  // For a long-concluded tournament, schedule.json often keeps only a
+  // handful of matches while the archive endpoint has the full history —
+  // so the archive wins whenever both cover the same match.
+  const merged: Record<string, Match> = {};
+  scheduleMatches.forEach((m) => { merged[m.normCode] = m; });
+  archiveMatches.forEach((m) => { merged[m.normCode] = m; });
+
+  // livematchids.json updates faster and more completely than
+  // ScheduleStatus — trust it, unless the match's own score already shows
+  // it's finished (buildMatch/buildMatchFromArchiveItem already trust the
+  // score over a stale status).
+  Object.entries(liveDocCodesByNormCode).forEach(([normCode]) => {
+    const existing = merged[normCode];
+    if (existing && existing.status !== 'done') {
+      existing.status = 'live';
+    }
+  });
+
+  // A live match schedule.json/archive don't have at all: build it
+  // directly from its own matchdata/ card.
+  Object.entries(orphanLiveCards).forEach(([normCode, entry]) => {
+    if (!merged[normCode]) {
+      merged[normCode] = buildOrphanLiveMatch(entry.docCode, entry.card);
+    }
+  });
+
+  return Object.values(merged);
+}

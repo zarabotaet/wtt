@@ -201,3 +201,73 @@ describe('buildOrphanLiveMatch', () => {
     expect(m.winnerIdx).toBe(0);
   });
 });
+
+import { computeMergedMatches } from './merge-matches';
+
+describe('computeMergedMatches', () => {
+  const unit = (code: string, overrides: Partial<RawUnit> = {}): RawUnit => ({
+    Code: code,
+    ScheduleStatus: 'Scheduled',
+    StartDate: '2026-09-10T11:00:00',
+    EndDate: '2026-09-10T12:00:00',
+    StartList: { Start: [{ Competitor: { Description: { TeamName: 'A' } } }, { Competitor: { Description: { TeamName: 'B' } } }] },
+    ...overrides,
+  });
+
+  it('lets an archive item override a schedule unit with the same code', () => {
+    const matches = computeMergedMatches({
+      units: [unit('M1', { ScheduleStatus: 'Scheduled' })],
+      archiveItems: [{
+        documentCode: 'M1',
+        startDateLocal: '2025-01-01T00:00:00',
+        match_card: {
+          competitiors: [{ competitiorName: 'A', scores: '11,11,11,0,0' }, { competitiorName: 'B', scores: '5,6,7,0,0' }],
+          matchConfig: { bestOfXGames: 5 },
+        },
+      }],
+      resultsByCode: {},
+      liveDocCodesByNormCode: {},
+      liveCardsByNormCode: {},
+      orphanLiveCards: {},
+    });
+    expect(matches).toHaveLength(1);
+    expect(matches[0].status).toBe('done');
+    expect(matches[0].winnerIdx).toBe(0);
+  });
+
+  it('upgrades a match to live via livematchids.json unless the score already shows it is done', () => {
+    const matches = computeMergedMatches({
+      units: [unit('M1', { ScheduleStatus: 'Scheduled' }), unit('M2', { ScheduleStatus: 'Scheduled' })],
+      archiveItems: [],
+      resultsByCode: {
+        M2: { competitiors: [{ scores: '11,11,11,0,0' }, { scores: '5,6,7,0,0' }], matchConfig: { bestOfXGames: 5 } },
+      },
+      liveDocCodesByNormCode: { M1: 'M1', M2: 'M2' },
+      liveCardsByNormCode: {},
+      orphanLiveCards: {},
+    });
+    const m1 = matches.find((m) => m.normCode === 'M1');
+    const m2 = matches.find((m) => m.normCode === 'M2');
+    expect(m1?.status).toBe('live');
+    expect(m2?.status).toBe('done'); // score already decided, not downgraded to live
+  });
+
+  it('adds an orphan live match that has no schedule/archive entry at all', () => {
+    const matches = computeMergedMatches({
+      units: [],
+      archiveItems: [],
+      resultsByCode: {},
+      liveDocCodesByNormCode: { ORPHAN1: 'ORPHAN1' },
+      liveCardsByNormCode: {},
+      orphanLiveCards: {
+        ORPHAN1: {
+          docCode: 'ORPHAN1',
+          card: { competitiors: [{ competitiorName: 'A', scores: '11,7,0,0,0' }, { competitiorName: 'B', scores: '9,5,0,0,0' }] },
+        },
+      },
+    });
+    expect(matches).toHaveLength(1);
+    expect(matches[0].normCode).toBe('ORPHAN1');
+    expect(matches[0].status).toBe('live');
+  });
+});
