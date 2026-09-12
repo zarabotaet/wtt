@@ -1905,12 +1905,19 @@ describe('MatchCard', () => {
   });
 
   it('marks the winning player row and trims trailing 0-0 games', () => {
-    render(<MatchCard match={baseMatch({
+    const { container } = render(<MatchCard match={baseMatch({
       status: 'done',
       gameScores: [[11, 11, 11, 0, 0], [5, 6, 7, 0, 0]],
       winnerIdx: 0,
     })} />);
-    expect(screen.queryByText('0')).not.toBeInTheDocument();
+    // Only 3 games were actually played (the trailing 0-0 pair is an
+    // unplayed slot, trimmed by trimTrailingEmptyGames) — each player's row
+    // should render exactly 3 per-game score spans, not 5. This does NOT
+    // assert "0" never appears anywhere: the losing side's total sets won
+    // can legitimately be 0 (e.g. a straight-sets loss) and the original
+    // prototype always displays that real number — hiding it would be an
+    // unrequested behavior change, not a trimming fix.
+    expect(container.querySelectorAll('.games .g')).toHaveLength(6); // 3 games x 2 players
     expect(screen.getByText('Finished')).toBeInTheDocument();
   });
 
@@ -2323,7 +2330,7 @@ export async function idbSet<T>(key: string, value: T): Promise<boolean> {
 ```tsx
 // lib/hooks/useLiveScoreUpdater.test.tsx
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { useLiveScoreUpdater } from './useLiveScoreUpdater';
 import type { Match } from '@/lib/types';
 
@@ -2348,6 +2355,7 @@ describe('useLiveScoreUpdater', () => {
     const initial = [match('M1', 'scheduled')];
     const { result } = renderHook(() => useLiveScoreUpdater('EVT1', initial));
     expect(result.current).toEqual(initial);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('polls the live API route and swaps in the fresh matches when a live match is present', async () => {
@@ -2358,7 +2366,23 @@ describe('useLiveScoreUpdater', () => {
     const initial = [match('M1', 'live')];
 
     const { result } = renderHook(() => useLiveScoreUpdater('EVT1', initial));
-    await vi.advanceTimersByTimeAsync(30000);
+    // The hook's setInterval callback does `await fetch(...)` then
+    // `await res.json()` before calling setState, so advancing the fake
+    // timer needs to happen inside `act()` for the resulting state update
+    // to flush before we read `result.current` below.
+    //
+    // Separately: @testing-library/react's `waitFor` drains the microtask
+    // queue via a real `setTimeout(..., 0)` under the hood, and it only
+    // knows how to nudge *Jest's* fake-timer clock forward while doing so
+    // (it feature-detects a global `jest`, which Vitest doesn't define) —
+    // under Vitest's fake timers that internal setTimeout is itself faked
+    // and never fires, so a bare `waitFor` after `advanceTimersByTimeAsync`
+    // hangs forever. Switching to real timers once the timer-driven part
+    // of the test is done (the poll already ran) sidesteps that.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+    vi.useRealTimers();
     await waitFor(() => expect(result.current[0].status).toBe('done'));
     expect(fetchMock).toHaveBeenCalledWith('/api/events/EVT1/live', { cache: 'no-store' });
   });
