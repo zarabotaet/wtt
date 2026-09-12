@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 };
 
 export default async function EventsPage() {
-  const events = normalizeEventsList(await fetchEventsList());
+  const events = normalizeEventsList(await fetchEventsList(3600));
   return (
     <main>
       <h1>Tournaments</h1>

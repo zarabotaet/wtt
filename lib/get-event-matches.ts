@@ -18,12 +18,12 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return results;
 }
 
-export async function getEventMatches(eventId: string): Promise<Match[]> {
+export async function getEventMatches(eventId: string, revalidateSeconds?: number): Promise<Match[]> {
   const [scheduleRaw, results10Raw, archiveRaw, liveIdsRaw] = await Promise.all([
-    fetchSchedule(eventId),
-    fetchResults10(eventId).catch(() => []),
-    fetchArchive(eventId).catch(() => []),
-    fetchLiveIds(eventId).catch(() => []),
+    fetchSchedule(eventId, revalidateSeconds),
+    fetchResults10(eventId, revalidateSeconds).catch(() => []),
+    fetchArchive(eventId, revalidateSeconds).catch(() => []),
+    fetchLiveIds(eventId, revalidateSeconds).catch(() => []),
   ]);
 
   // IMPORTANT: each schedule.json item can bundle MANY matches under one
@@ -65,7 +65,7 @@ export async function getEventMatches(eventId: string): Promise<Match[]> {
     const rawCode = codeByNormCode[normCode];
     if (!rawCode) return null;
     try {
-      return [normCode, await fetchMatchCard(eventId, fullDocCode(rawCode))] as const;
+      return [normCode, await fetchMatchCard(eventId, fullDocCode(rawCode), revalidateSeconds)] as const;
     } catch {
       return null; // keep whatever pass 1 already had
     }
@@ -83,7 +83,7 @@ export async function getEventMatches(eventId: string): Promise<Match[]> {
   );
   const orphanResults = await mapLimit(orphanEntries, MISSING_SCORE_CONCURRENCY, async ([normCode, docCode]) => {
     try {
-      return [normCode, { docCode, card: await fetchMatchCard(eventId, docCode) }] as const;
+      return [normCode, { docCode, card: await fetchMatchCard(eventId, docCode, revalidateSeconds) }] as const;
     } catch {
       return null; // try again next regeneration
     }
@@ -110,7 +110,7 @@ export async function getEventMatches(eventId: string): Promise<Match[]> {
   if (missing.length) {
     const filledEntries = await mapLimit(missing, MISSING_SCORE_CONCURRENCY, async (m) => {
       try {
-        return [m.normCode, await fetchMatchCard(eventId, fullDocCode(m.code))] as const;
+        return [m.normCode, await fetchMatchCard(eventId, fullDocCode(m.code), revalidateSeconds)] as const;
       } catch {
         return null; // no score available for this match either — leave as-is
       }

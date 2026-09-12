@@ -18,36 +18,68 @@ function cacheBust(url: string): string {
   return `${url}${url.includes('?') ? '&' : '?'}q=${Date.now()}`;
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { cache: 'no-store' });
+// The `?q=` cache-buster only matters when a fetch intentionally bypasses
+// all caching (cache: 'no-store') — it defeats the *caller's own* HTTP
+// cache, which the original client-side prototype needed to fight the
+// browser's cache. On the server, once a fetch instead asks Next.js's
+// Data Cache to reuse a response for `revalidateSeconds`, a fresh
+// timestamp baked into the URL on every call would mean every "cached"
+// entry only ever matches itself, defeating the very caching being asked
+// for — so it must be omitted whenever a revalidate window is requested.
+function resolveUrl(url: string, revalidateSeconds?: number): string {
+  return revalidateSeconds === undefined ? cacheBust(url) : url;
+}
+
+async function fetchJson<T>(url: string, revalidateSeconds?: number): Promise<T> {
+  const res = await fetch(
+    url,
+    revalidateSeconds === undefined ? { cache: 'no-store' } : { next: { revalidate: revalidateSeconds } }
+  );
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.json() as Promise<T>;
 }
 
-export function fetchEventsList(): Promise<RawEventListItem[]> {
-  return fetchJson(`${BASE_URL}/websitestaticapifiles/general/wtt_upcoming_only_events_list.json`);
+export function fetchEventsList(revalidateSeconds?: number): Promise<RawEventListItem[]> {
+  return fetchJson(`${BASE_URL}/websitestaticapifiles/general/wtt_upcoming_only_events_list.json`, revalidateSeconds);
 }
 
-export function fetchSchedule(eventId: string): Promise<RawScheduleItem[]> {
-  return fetchJson(cacheBust(`${BASE_URL}/websitecacheddata/${eventId}/schedule/schedule.json`));
-}
-
-export function fetchResults10(eventId: string): Promise<RawResults10Item[]> {
+export function fetchSchedule(eventId: string, revalidateSeconds?: number): Promise<RawScheduleItem[]> {
   return fetchJson(
-    cacheBust(`${BASE_URL}/websitestaticapifiles/${eventId}/${eventId}_take_10_official_results.json`)
+    resolveUrl(`${BASE_URL}/websitecacheddata/${eventId}/schedule/schedule.json`, revalidateSeconds),
+    revalidateSeconds
   );
 }
 
-export function fetchArchive(eventId: string): Promise<RawArchiveItem[]> {
-  return fetchJson(cacheBust(`${BASE_URL}/websitearchivedresults/${eventId}/officialresult/officialresult.json`));
-}
-
-export function fetchLiveIds(eventId: string): Promise<RawLiveIdsItem[]> {
+export function fetchResults10(eventId: string, revalidateSeconds?: number): Promise<RawResults10Item[]> {
   return fetchJson(
-    cacheBust(`${BASE_URL}/websitestaticapifiles/running-events/${eventId}/${eventId}_livematchids.json`)
+    resolveUrl(
+      `${BASE_URL}/websitestaticapifiles/${eventId}/${eventId}_take_10_official_results.json`,
+      revalidateSeconds
+    ),
+    revalidateSeconds
   );
 }
 
-export function fetchMatchCard(eventId: string, docCode: string): Promise<MatchCard> {
-  return fetchJson(cacheBust(`${BASE_URL}/matchdata/${eventId}/${docCode}.json`));
+export function fetchArchive(eventId: string, revalidateSeconds?: number): Promise<RawArchiveItem[]> {
+  return fetchJson(
+    resolveUrl(`${BASE_URL}/websitearchivedresults/${eventId}/officialresult/officialresult.json`, revalidateSeconds),
+    revalidateSeconds
+  );
+}
+
+export function fetchLiveIds(eventId: string, revalidateSeconds?: number): Promise<RawLiveIdsItem[]> {
+  return fetchJson(
+    resolveUrl(
+      `${BASE_URL}/websitestaticapifiles/running-events/${eventId}/${eventId}_livematchids.json`,
+      revalidateSeconds
+    ),
+    revalidateSeconds
+  );
+}
+
+export function fetchMatchCard(eventId: string, docCode: string, revalidateSeconds?: number): Promise<MatchCard> {
+  return fetchJson(
+    resolveUrl(`${BASE_URL}/matchdata/${eventId}/${docCode}.json`, revalidateSeconds),
+    revalidateSeconds
+  );
 }
