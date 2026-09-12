@@ -24,6 +24,7 @@ describe('useLiveScoreUpdater', () => {
     const initial = [match('M1', 'scheduled')];
     const { result } = renderHook(() => useLiveScoreUpdater('EVT1', initial));
     expect(result.current).toEqual(initial);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('polls the live API route and swaps in the fresh matches when a live match is present', async () => {
