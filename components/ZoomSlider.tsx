@@ -32,8 +32,8 @@ export function ZoomSlider() {
         step={10}
         value={value}
         onChange={(e) => apply(Number(e.target.value))}
-        onMouseUp={() => localStorage.setItem(ZOOM_KEY, String(value))}
-        onTouchEnd={() => localStorage.setItem(ZOOM_KEY, String(value))}
+        onMouseUp={(e) => localStorage.setItem(ZOOM_KEY, (e.target as HTMLInputElement).value)}
+        onTouchEnd={(e) => localStorage.setItem(ZOOM_KEY, (e.target as HTMLInputElement).value)}
       />
     </div>
   );
