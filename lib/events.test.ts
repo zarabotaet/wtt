@@ -17,6 +17,28 @@ describe('tournamentStatus', () => {
     const e: RawEventListItem = { eventId: '1', eventName: 'A', startDateTime: '2026-01-01T00:00:00Z', endDateTime: '2026-01-05T00:00:00Z' };
     expect(tournamentStatus(e, NOW)).toBe('past');
   });
+
+  it('stays ongoing for the rest of its own last calendar day, not just until midnight (regression: WTT gives endDateTime as a bare date, not a precise timestamp)', () => {
+    // Confirmed live: a real tournament's endDateTime was "2026-09-13T00:00:00"
+    // (a bare calendar date, not a precise timestamp) while it still had a
+    // Men's Singles Final scheduled for 20:15 that same day — comparing
+    // the raw instant made the whole tournament read as "past" from
+    // midnight onward on its own final day. Using explicit "Z" fixtures
+    // here (like the rest of this file) keeps the test deterministic
+    // regardless of the runner's local timezone; isMidnightString matches
+    // a trailing "Z" too, so this still exercises the same code path a
+    // real, offset-less WTT string would.
+    const e: RawEventListItem = {
+      eventId: '3248',
+      eventName: 'WTT Champions Macao 2026',
+      startDateTime: '2026-09-08T00:00:00Z',
+      endDateTime: '2026-09-13T00:00:00Z',
+    };
+    const morningOfLastDay = new Date('2026-09-13T07:38:56Z').getTime();
+    expect(tournamentStatus(e, morningOfLastDay)).toBe('ongoing');
+    const dayAfter = new Date('2026-09-14T00:00:01Z').getTime();
+    expect(tournamentStatus(e, dayAfter)).toBe('past');
+  });
 });
 
 describe('normalizeEventsList', () => {
