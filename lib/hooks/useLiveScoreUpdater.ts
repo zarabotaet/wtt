@@ -44,6 +44,18 @@ export function useLiveScoreUpdater(eventId: string, initialMatches: Match[]): L
     }
   }, [eventId, cacheKey]);
 
+  // The initial SSR render deliberately skips the expensive
+  // officialresult-discovery and missing-score fill-in passes (see
+  // getEventMatches's `fillMissingScores` option) so switching
+  // tournaments doesn't block on dozens of individual matchdata/
+  // fetches. Firing a full poll right after mount — instead of waiting
+  // up to POLL_MS for the first background refresh — closes that gap
+  // within a second or two, matching the "show what you have instantly,
+  // fill in the rest shortly after" feel the original prototype had.
+  useEffect(() => {
+    if (!isConcludedRef.current) poll();
+  }, [poll]);
+
   useEffect(() => {
     let cancelled = false;
     const interval = setInterval(() => {

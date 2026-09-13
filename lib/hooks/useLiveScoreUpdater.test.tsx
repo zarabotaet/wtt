@@ -75,17 +75,47 @@ describe('useLiveScoreUpdater', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/events/EVT1/live', { cache: 'no-store' });
   });
 
-  it('refresh() triggers an immediate fetch and toggles isRefreshing around it, independent of the poll timer', async () => {
+  it('fires a full poll immediately on mount rather than waiting POLL_MS, so a fast SSR pass (fillMissingScores: false) gets filled in within a second or two', async () => {
+    // The tournament page's initial SSR render deliberately skips
+    // expensive per-match lookups (see getEventMatches's
+    // `fillMissingScores` option) so switching tournaments doesn't block
+    // on dozens of individual fetches. This immediate-on-mount poll is
+    // what closes that gap quickly instead of waiting up to 30s for the
+    // first interval-triggered refresh.
     const fresh = [match('M1', 'done')];
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(fresh) });
+    vi.stubGlobal('fetch', fetchMock);
+    const initial = [match('M1', 'scheduled')];
+
+    const { result } = renderHook(() => useLiveScoreUpdater('EVT1', initial));
+    await waitFor(() => expect(result.current.matches).toEqual(fresh));
+    expect(fetchMock).toHaveBeenCalledWith('/api/events/EVT1/live', { cache: 'no-store' });
+  });
+
+  it('does not fire the immediate mount poll when the tournament is already fully concluded', () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const initial = [match('M1', 'done')];
+    renderHook(() => useLiveScoreUpdater('EVT1', initial));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refresh() triggers an immediate fetch and toggles isRefreshing around it, independent of the poll timer', async () => {
+    const fresh = [match('M1', 'live')];
     let resolveFetch: (value: { ok: true; json: () => Promise<Match[]> }) => void = () => {};
     const fetchMock = vi.fn().mockReturnValue(
       new Promise((resolve) => { resolveFetch = resolve; })
     );
     vi.stubGlobal('fetch', fetchMock);
-    const initial = [match('M1', 'scheduled')];
+    // Start from an already-concluded tournament so the automatic
+    // immediate-on-mount poll (tested above) doesn't also fire here and
+    // muddy the isRefreshing/fetchMock assertions below — refresh()
+    // itself is unconditional and works regardless of concluded state.
+    const initial = [match('M1', 'done')];
 
     const { result } = renderHook(() => useLiveScoreUpdater('EVT1', initial));
     expect(result.current.isRefreshing).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
 
     let refreshPromise!: Promise<void>;
     act(() => {

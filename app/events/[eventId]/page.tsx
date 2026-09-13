@@ -23,7 +23,13 @@ export async function generateMetadata({ params }: { params: { eventId: string }
 }
 
 export default async function EventPage({ params }: { params: { eventId: string } }) {
-  const matchesPromise = getEventMatches(params.eventId, 60).catch((err) => {
+  // Fast path: skip the expensive officialresult-discovery and
+  // missing-score fill-in passes here so switching tournaments doesn't
+  // block on dozens of individual matchdata/ fetches — the client-side
+  // live-poll hook fires an immediate full fetch on mount (see
+  // useLiveScoreUpdater) to fill in whatever this fast pass left out,
+  // usually within a second or two.
+  const matchesPromise = getEventMatches(params.eventId, 60, { fillMissingScores: false }).catch((err) => {
     if (err instanceof WttApiError && (err.status === 404 || err.status === 403)) {
       notFound();
     }

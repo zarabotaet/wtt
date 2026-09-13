@@ -1,6 +1,6 @@
 // components/MatchFeed.test.tsx
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MatchFeed } from './MatchFeed';
 import type { Match } from '@/lib/types';
 
@@ -43,21 +43,33 @@ afterEach(() => {
 });
 
 describe('MatchFeed', () => {
-  it('groups matches into Upcoming/Live/Completed sections, omitting empty ones', () => {
-    vi.stubGlobal('fetch', vi.fn());
+  it('groups matches into Upcoming/Live/Completed sections, omitting empty ones', async () => {
+    // Not every match here is 'done', so useLiveScoreUpdater's
+    // immediate-on-mount poll (see lib/hooks/useLiveScoreUpdater.ts) fires
+    // right away — give fetch a real resolution and wait for it so that
+    // state update settles inside act() instead of leaking a warning.
     const matches = [
       match({ normCode: 'A', status: 'scheduled' }),
       match({ normCode: 'B', status: 'done' }),
     ];
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(matches) });
+    vi.stubGlobal('fetch', fetchMock);
     render(<MatchFeed eventId="EVT1" initialMatches={matches} events={[]} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.getByText('Upcoming')).toBeInTheDocument();
     expect(screen.getByText('Completed')).toBeInTheDocument();
     expect(screen.queryByText('Live')).not.toBeInTheDocument();
   });
 
-  it('shows the empty-state message when there are no matches at all', () => {
-    vi.stubGlobal('fetch', vi.fn());
+  it('shows the empty-state message when there are no matches at all', async () => {
+    // An empty initial list isn't treated as "concluded" (that requires
+    // at least one match, all done), so the mount poll still fires here —
+    // give it a real resolution and wait for it so the resulting state
+    // update settles inside act() instead of leaking a warning.
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
+    vi.stubGlobal('fetch', fetchMock);
     render(<MatchFeed eventId="EVT1" initialMatches={[]} events={[]} />);
     expect(screen.getByText('No matches for this event')).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
   });
 });
