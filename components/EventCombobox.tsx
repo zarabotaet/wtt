@@ -38,7 +38,7 @@ export function EventCombobox({
 
   return (
     <div className="event-select" id="eventCombo">
-      <span className={statusDotClass(current?.status ?? 'past')} />
+      <span className={`${statusDotClass(current?.status ?? 'past')} event-status-anchor`} />
       <input
         ref={inputRef}
         type="text"

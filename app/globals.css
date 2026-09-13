@@ -92,7 +92,7 @@ header.bar{
   flex-shrink:0;
   display:inline-block;
 }
-.event-select .status-dot{ position:absolute; left:12px; top:50%; transform:translateY(-50%); z-index:1; }
+.event-status-anchor{ position:absolute; left:12px; top:50%; transform:translateY(-50%); z-index:1; }
 .status-dot-ongoing{ background:var(--accent); box-shadow:0 0 0 3px var(--accent-a14); }
 .status-dot-future{ background:var(--future); }
 .status-dot-past{ background:var(--muted-2); }
