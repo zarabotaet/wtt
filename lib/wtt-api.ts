@@ -14,20 +14,31 @@ import type {
 // endpoint below.
 const BASE_URL = 'https://wtt-web-frontdoor-cthahjeqhbh6aqe3.a01.azurefd.net';
 
-function cacheBust(url: string): string {
-  return `${url}${url.includes('?') ? '&' : '?'}q=${Date.now()}`;
+function cacheBust(url: string, bucketMs: number): string {
+  const bucket = Math.floor(Date.now() / bucketMs);
+  return `${url}${url.includes('?') ? '&' : '?'}q=${bucket}`;
 }
 
-// The `?q=` cache-buster only matters when a fetch intentionally bypasses
-// all caching (cache: 'no-store') — it defeats the *caller's own* HTTP
-// cache, which the original client-side prototype needed to fight the
-// browser's cache. On the server, once a fetch instead asks Next.js's
-// Data Cache to reuse a response for `revalidateSeconds`, a fresh
-// timestamp baked into the URL on every call would mean every "cached"
-// entry only ever matches itself, defeating the very caching being asked
-// for — so it must be omitted whenever a revalidate window is requested.
+// WTT's own CDN (Azure Front Door) caches these files independently of
+// whatever revalidate window we ask Next.js's Data Cache for — confirmed
+// live: an unbusted request returned a response over 17 hours stale
+// (x-cache: TCP_HIT, last-modified from the previous day, missing 4
+// newly-finished matches) while a cache-busted request to the exact same
+// URL got a response seconds old (TCP_MISS). So the cache-busting query
+// param must ALWAYS be present — the only question is how often its
+// value changes.
+//
+// Bucketing it to the size of our own revalidate window (instead of a
+// per-call-unique timestamp) means the URL stays IDENTICAL across calls
+// within that window — so Next's Data Cache can still reuse a response
+// instead of re-fetching WTT on every call — while still changing often
+// enough to force a genuinely fresh WTT origin read (bypassing WTT's own
+// stale CDN cache) at least once per window. With no revalidate window
+// (cache: 'no-store', always-fresh contexts), bucket by 1ms — i.e.
+// unique on every call, matching the old always-fresh behavior.
 function resolveUrl(url: string, revalidateSeconds?: number): string {
-  return revalidateSeconds === undefined ? cacheBust(url) : url;
+  const bucketMs = revalidateSeconds === undefined ? 1 : revalidateSeconds * 1000;
+  return cacheBust(url, bucketMs);
 }
 
 export class WttApiError extends Error {
@@ -47,7 +58,10 @@ async function fetchJson<T>(url: string, revalidateSeconds?: number): Promise<T>
 }
 
 export function fetchEventsList(revalidateSeconds?: number): Promise<RawEventListItem[]> {
-  return fetchJson(`${BASE_URL}/websitestaticapifiles/general/wtt_upcoming_only_events_list.json`, revalidateSeconds);
+  return fetchJson(
+    resolveUrl(`${BASE_URL}/websitestaticapifiles/general/wtt_upcoming_only_events_list.json`, revalidateSeconds),
+    revalidateSeconds
+  );
 }
 
 export function fetchSchedule(eventId: string, revalidateSeconds?: number): Promise<RawScheduleItem[]> {
