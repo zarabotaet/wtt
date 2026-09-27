@@ -4,8 +4,14 @@ import { getEventsListOrNull } from './event-list';
 import { computeTier } from './tier';
 import { WttApiError } from './wtt-api';
 import type { EventEnvelope, Match, NormalizedEvent } from './types';
+import { failInsideCache, unwrapCached, type CachedFailure } from './cached-failure';
 
 type Tier = ReturnType<typeof computeTier>;
+
+// Upstream errors are rethrown, never cached, so a failed regeneration keeps
+// the last good snapshot; a long expire keeps it available through a long
+// WTT outage even for a tournament nobody visits for a while.
+const KEEP_WHILE_WTT_DOWN = 30 * 86400;
 
 // 'final' is cached forever (server, CDN, browser) and never refetched, so it
 // must only be granted to a snapshot we trust. A transient WTT failure can
@@ -23,7 +29,26 @@ export function finalizeTier(tier: Tier, matches: Match[], complete: boolean): T
 // overrides the short lifetimes of the nested match-card caches.
 // Not-found is returned as null rather than thrown: an error crossing the
 // 'use cache' boundary is not guaranteed to keep its class.
+// Last good snapshot per tournament in this server instance. At request
+// time Next regenerates an outdated 'use cache' entry in the foreground, and
+// errors are not cached, so without this every refresh during a WTT outage
+// would fail instead of serving what we already had.
+const lastGood = new Map<string, EventEnvelope>();
+
 export async function getEventData(eventId: string): Promise<EventEnvelope | null> {
+  const id = String(eventId);
+  try {
+    const envelope = unwrapCached(await getEventDataCached(eventId));
+    if (envelope) lastGood.set(id, envelope);
+    return envelope;
+  } catch (err) {
+    const previous = lastGood.get(id);
+    if (previous) return previous;
+    throw err;
+  }
+}
+
+async function getEventDataCached(eventId: string): Promise<EventEnvelope | null | CachedFailure> {
   'use cache: remote';
   let matches: Match[];
   let events: NormalizedEvent[];
@@ -41,15 +66,15 @@ export async function getEventData(eventId: string): Promise<EventEnvelope | nul
       cacheLife('minutes');
       return null;
     }
-    throw err;
+    return failInsideCache(err);
   }
 
   const now = Date.now();
   const event = events.find((e) => String(e.eventId) === String(eventId));
   const tier = finalizeTier(computeTier(event, matches, now), matches, stats.complete);
   if (tier === 'final') cacheLife('max');
-  else if (tier === 'live') cacheLife({ revalidate: 15, expire: 86400 });
-  else cacheLife({ revalidate: 3600, expire: 604800 });
+  else if (tier === 'live') cacheLife({ revalidate: 15, expire: KEEP_WHILE_WTT_DOWN });
+  else cacheLife({ revalidate: 3600, expire: KEEP_WHILE_WTT_DOWN });
 
   return { eventId: String(eventId), matches, tier, generatedAt: now };
 }

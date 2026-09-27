@@ -3,6 +3,7 @@ import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import { getEventData } from '@/lib/event-data';
 import { getEventsList } from '@/lib/event-list';
+import { withBuildFallback } from '@/lib/render-fallback';
 import { ZoomSlider } from '@/components/ZoomSlider';
 import { MatchFeed } from '@/components/MatchFeed';
 import { Footer } from '@/components/Footer';
@@ -10,14 +11,17 @@ import { Footer } from '@/components/Footer';
 // Cache Components requires at least one param. Prerender the top of the
 // list (ongoing first); every other tournament is served from the App
 // Shell on its first visit and cached from then on.
+// With WTT down at build time a placeholder id keeps the build alive; its
+// render falls back to request time (see lib/render-fallback.ts).
 export async function generateStaticParams() {
-  const events = await getEventsList();
+  const events = await getEventsList().catch(() => []);
+  if (!events.length) return [{ eventId: '0' }];
   return events.slice(0, 1).map((e) => ({ eventId: String(e.eventId) }));
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ eventId: string }> }): Promise<Metadata> {
   const { eventId } = await params;
-  const events = await getEventsList();
+  const events = await withBuildFallback(getEventsList(), []);
   const event = events.find((e) => String(e.eventId) === String(eventId));
   const title = event ? `${event.eventName} — Matches & Results` : 'WTT Matches';
   const description = event ? `Live scores, schedule and results for ${event.eventName}.` : undefined;
@@ -55,7 +59,10 @@ function FeedFallback() {
 
 async function EventContent({ params }: { params: Promise<{ eventId: string }> }) {
   const { eventId } = await params;
-  const [envelope, events] = await Promise.all([getEventData(eventId), getEventsList()]);
+  const [envelope, events] = await Promise.all([
+    withBuildFallback(getEventData(eventId)),
+    withBuildFallback(getEventsList(), []),
+  ]);
   if (!envelope) notFound();
 
   const jsonLd = envelope.matches.slice(0, 20).map((m) => ({

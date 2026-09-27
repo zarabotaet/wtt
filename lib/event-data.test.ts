@@ -58,14 +58,14 @@ describe('getEventData', () => {
     vi.mocked(getEventMatches).mockResolvedValue([match('done'), match('live')]);
     const env = await getEventData('NOW');
     expect(env?.tier).toBe('live');
-    expect(cacheLife).toHaveBeenCalledWith({ revalidate: 15, expire: 86400 });
+    expect(cacheLife).toHaveBeenCalledWith({ revalidate: 15, expire: 30 * 86400 });
   });
 
   it('regenerates a future tournament hourly', async () => {
     vi.mocked(getEventMatches).mockResolvedValue([match('scheduled')]);
     const env = await getEventData('SOON');
     expect(env?.tier).toBe('future');
-    expect(cacheLife).toHaveBeenCalledWith({ revalidate: 3600, expire: 604800 });
+    expect(cacheLife).toHaveBeenCalledWith({ revalidate: 3600, expire: 30 * 86400 });
   });
 
   it('treats the tournament as live when the events list is unavailable', async () => {
@@ -81,10 +81,18 @@ describe('getEventData', () => {
     expect(cacheLife).toHaveBeenCalledWith('minutes');
   });
 
-  it('rethrows other upstream errors without caching', async () => {
+  it('rethrows other upstream errors without caching when nothing was loaded before', async () => {
     vi.mocked(getEventMatches).mockRejectedValue(new WttApiError(500, 'u'));
-    await expect(getEventData('PAST')).rejects.toThrow('500');
+    await expect(getEventData('NEVER_LOADED')).rejects.toThrow('500');
     expect(cacheLife).not.toHaveBeenCalled();
+  });
+
+  it('serves the last good snapshot while WTT is down', async () => {
+    const matches = [match('done'), match('live')];
+    vi.mocked(getEventMatches).mockResolvedValue(matches);
+    const good = await getEventData('KEPT');
+    vi.mocked(getEventMatches).mockRejectedValue(new WttApiError(503, 'u'));
+    await expect(getEventData('KEPT')).resolves.toEqual(good);
   });
 
   it('downgrades final to live when the pass was incomplete', async () => {
@@ -94,7 +102,7 @@ describe('getEventData', () => {
     });
     const env = await getEventData('PAST');
     expect(env?.tier).toBe('live');
-    expect(cacheLife).toHaveBeenCalledWith({ revalidate: 15, expire: 86400 });
+    expect(cacheLife).toHaveBeenCalledWith({ revalidate: 15, expire: 30 * 86400 });
     expect(cacheLife).not.toHaveBeenCalledWith('max');
   });
 });
