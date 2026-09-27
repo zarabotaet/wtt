@@ -1,4 +1,4 @@
-import { fetchArchive, fetchLiveIds, fetchMatchCard, fetchOfficialResult, fetchResults10, fetchSchedule } from './wtt-api';
+import { fetchArchive, fetchLiveIds, fetchMatchCard, fetchOfficialResult, fetchResults10, fetchSchedule, WttApiError } from './wtt-api';
 import { computeMergedMatches, dedupeUnits, fullDocCode, normalizeCode } from './merge-matches';
 import type { Match, MatchCard, RawUnit } from './types';
 
@@ -25,18 +25,38 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 // background.
 //
 // `stats`, when given, is filled in with whether the pass was complete:
-// false if results10/archive/officialresult failed or any matchdata/ card
+// false if results10/archive/officialresult failed (other than a plain 404) or any matchdata/ card
 // lookup threw. Callers use it to avoid caching a truncated snapshot as final.
 export async function getEventMatches(eventId: string, stats?: { complete: boolean }): Promise<Match[]> {
   let complete = true;
   const fail = () => { complete = false; };
+  // For the optional sources a 404/403 means the file doesn't exist for this
+  // event (e.g. no results10 or archive for an old or a running tournament)
+  // — only other errors (5xx, network) make the pass incomplete.
+  const optional = (err: unknown) => {
+    if (!(err instanceof WttApiError && (err.status === 404 || err.status === 403))) fail();
+    return [];
+  };
+  let scheduleGone: WttApiError | null = null;
   const [scheduleRaw, results10Raw, archiveRaw, liveIdsRaw, officialResultRaw] = await Promise.all([
-    fetchSchedule(eventId),
-    fetchResults10(eventId).catch(() => { fail(); return []; }),
-    fetchArchive(eventId).catch(() => { fail(); return []; }),
+    fetchSchedule(eventId).catch((err) => {
+      if (err instanceof WttApiError && (err.status === 404 || err.status === 403)) {
+        scheduleGone = err;
+        return [];
+      }
+      throw err;
+    }),
+    fetchResults10(eventId).catch(optional),
+    fetchArchive(eventId).catch(optional),
     fetchLiveIds(eventId).catch(() => []),
-    fetchOfficialResult(eventId).catch(() => { fail(); return []; }),
+    fetchOfficialResult(eventId).catch(optional),
   ]);
+
+  // WTT deletes schedule.json for long-finished tournaments (404) while the
+  // archive keeps every match (checked live 2026-09-28 on events back to
+  // 2021), so build from the archive alone then. With neither, the event has
+  // no data at WTT: not found here, getEventData decides what to show.
+  if (scheduleGone && !archiveRaw.some((item) => item.match_card)) throw scheduleGone;
 
   // IMPORTANT: each schedule.json item can bundle MANY matches under one
   // Competition.Unit array, not a single match — taking only Unit[0]

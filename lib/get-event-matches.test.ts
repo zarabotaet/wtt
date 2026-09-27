@@ -8,9 +8,14 @@ vi.mock('./wtt-api', () => ({
   fetchLiveIds: vi.fn(),
   fetchMatchCard: vi.fn(),
   fetchOfficialResult: vi.fn(),
+  WttApiError: class WttApiError extends Error {
+    constructor(public status: number, url: string) {
+      super(`HTTP ${status} for ${url}`);
+    }
+  },
 }));
 
-import { fetchSchedule, fetchResults10, fetchArchive, fetchLiveIds, fetchMatchCard, fetchOfficialResult } from './wtt-api';
+import { fetchSchedule, fetchResults10, fetchArchive, fetchLiveIds, fetchMatchCard, fetchOfficialResult, WttApiError } from './wtt-api';
 import { getEventMatches } from './get-event-matches';
 
 const EVENT_ID = 'EVT1';
@@ -37,6 +42,60 @@ beforeEach(() => {
   vi.mocked(fetchLiveIds).mockResolvedValue([] as RawLiveIdsItem[]);
   vi.mocked(fetchOfficialResult).mockResolvedValue([] as RawArchiveItem[]);
   vi.mocked(fetchMatchCard).mockRejectedValue(new Error('not mocked for this match'));
+});
+
+describe('getEventMatches without schedule.json', () => {
+  // WTT drops schedule.json for long-finished tournaments (404) but keeps
+  // the archive; upcoming tournaments have neither yet.
+  const archived = [{
+    documentCode: 'ARCH1',
+    startDateLocal: '2024-02-20T10:00:00',
+    match_card: {
+      competitiors: [{ competitiorName: 'Old A', scores: '11,11,11,0,0' }, { competitiorName: 'Old B', scores: '5,6,7,0,0' }],
+      matchConfig: { bestOfXGames: 5 },
+    },
+  }] as RawArchiveItem[];
+
+  it('builds the matches from the archive when schedule.json is gone', async () => {
+    vi.mocked(fetchSchedule).mockRejectedValue(new WttApiError(404, 'schedule'));
+    vi.mocked(fetchArchive).mockResolvedValue(archived);
+    const stats = { complete: true };
+    const matches = await getEventMatches(EVENT_ID, stats);
+    expect(matches.map((m) => m.normCode)).toEqual(['ARCH1']);
+    expect(matches[0].status).toBe('done');
+    expect(stats.complete).toBe(true);
+  });
+
+  it('still reports not-found when neither schedule.json nor the archive exist', async () => {
+    vi.mocked(fetchSchedule).mockRejectedValue(new WttApiError(404, 'schedule'));
+    await expect(getEventMatches(EVENT_ID)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('does not hide other schedule.json failures', async () => {
+    vi.mocked(fetchSchedule).mockRejectedValue(new WttApiError(502, 'schedule'));
+    vi.mocked(fetchArchive).mockResolvedValue(archived);
+    await expect(getEventMatches(EVENT_ID)).rejects.toMatchObject({ status: 502 });
+  });
+});
+
+describe('getEventMatches optional sources', () => {
+  it('treats a 404 on results10/archive/officialresult as absent, not as an incomplete pass', async () => {
+    vi.mocked(fetchSchedule).mockResolvedValue([{ Competition: { Unit: [unit('M1', 'Scheduled', ['A', 'B'])] } }]);
+    vi.mocked(fetchResults10).mockRejectedValue(new WttApiError(404, 'r10'));
+    vi.mocked(fetchArchive).mockRejectedValue(new WttApiError(404, 'arch'));
+    vi.mocked(fetchOfficialResult).mockRejectedValue(new WttApiError(404, 'min'));
+    const stats = { complete: true };
+    await getEventMatches(EVENT_ID, stats);
+    expect(stats.complete).toBe(true);
+  });
+
+  it('marks the pass incomplete when an optional source fails with a server error', async () => {
+    vi.mocked(fetchSchedule).mockResolvedValue([{ Competition: { Unit: [unit('M1', 'Scheduled', ['A', 'B'])] } }]);
+    vi.mocked(fetchResults10).mockRejectedValue(new WttApiError(502, 'r10'));
+    const stats = { complete: true };
+    await getEventMatches(EVENT_ID, stats);
+    expect(stats.complete).toBe(false);
+  });
 });
 
 describe('getEventMatches', () => {

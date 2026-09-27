@@ -62,11 +62,19 @@ async function getEventDataCached(eventId: string): Promise<EventEnvelope | null
       }),
     ]);
   } catch (err) {
-    if (err instanceof WttApiError && (err.status === 404 || err.status === 403)) {
+    if (!(err instanceof WttApiError && (err.status === 404 || err.status === 403))) {
+      return failInsideCache(err);
+    }
+    // No data at WTT. A tournament from the events list (typically an
+    // upcoming one, before WTT publishes its schedule) is shown empty;
+    // anything else is not found.
+    const list = await getEventsListOrNull();
+    if (!list?.some((e) => String(e.eventId) === String(eventId))) {
       cacheLife('minutes');
       return null;
     }
-    return failInsideCache(err);
+    matches = [];
+    events = list;
   }
 
   const now = Date.now();

@@ -75,10 +75,17 @@ describe('getEventData', () => {
     expect(env?.tier).toBe('live');
   });
 
-  it.each([404, 403])('returns null for a WTT %i and remembers it for minutes', async (status) => {
+  it.each([404, 403])('returns null for a WTT %i on an unknown tournament and remembers it for minutes', async (status) => {
     vi.mocked(getEventMatches).mockRejectedValue(new WttApiError(status, 'u'));
     await expect(getEventData('GONE')).resolves.toBeNull();
     expect(cacheLife).toHaveBeenCalledWith('minutes');
+  });
+
+  it('shows an upcoming tournament with no data at WTT yet as empty, not missing', async () => {
+    vi.mocked(getEventMatches).mockRejectedValue(new WttApiError(404, 'u'));
+    const env = await getEventData('SOON');
+    expect(env).toEqual({ eventId: 'SOON', matches: [], tier: 'future', generatedAt: NOW });
+    expect(cacheLife).toHaveBeenCalledWith({ revalidate: 3600, expire: 30 * 86400 });
   });
 
   it('rethrows other upstream errors without caching when nothing was loaded before', async () => {
