@@ -6,6 +6,8 @@ import type {
   RawResults10Item,
   RawScheduleItem,
 } from './types';
+import { cacheLife } from 'next/cache';
+import { computeSets, isDecided, parseScores } from './merge-matches';
 
 // Server-side fetch is not subject to browser CORS, so unlike the
 // prototype we are not restricted to the one WTT mirror that allows
@@ -98,11 +100,25 @@ export function fetchLiveIds(eventId: string, revalidateSeconds?: number): Promi
   );
 }
 
-export function fetchMatchCard(eventId: string, docCode: string, revalidateSeconds?: number): Promise<MatchCard> {
-  return fetchJson(
-    resolveUrl(`${BASE_URL}/matchdata/${eventId}/${docCode}.json`, revalidateSeconds),
-    revalidateSeconds
-  );
+function isCardFinal(card: MatchCard): boolean {
+  const c = card?.competitiors;
+  if (!c || c.length !== 2) return false;
+  const { setsA, setsB } = computeSets(parseScores(c[0].scores), parseScores(c[1].scores));
+  return isDecided(setsA, setsB, card.matchConfig?.bestOfXGames || 5);
+}
+
+// A matchdata/ card with a decided winner never changes again — the
+// server-side twin of the prototype's IndexedDB rule "never re-fetch a
+// known finished score" — so it is kept for the maximum lifetime. An
+// undecided (live/scheduled) card is kept for a second or two only, so
+// every getEventData regeneration reads it fresh; the cache-busting q=
+// param is still always present (see resolveUrl).
+export async function fetchMatchCard(eventId: string, docCode: string): Promise<MatchCard> {
+  'use cache: remote';
+  const card = await fetchJson<MatchCard>(resolveUrl(`${BASE_URL}/matchdata/${eventId}/${docCode}.json`));
+  if (isCardFinal(card)) cacheLife('max');
+  else cacheLife({ stale: 0, revalidate: 1, expire: 2 });
+  return card;
 }
 
 // The ONLY endpoint listing every completed match of an active tournament

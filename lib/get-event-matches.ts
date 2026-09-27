@@ -94,7 +94,7 @@ export async function getEventMatches(
           {
             docCode: item.documentCode,
             startDateLocal: item.startDateLocal,
-            card: await fetchMatchCard(eventId, item.documentCode, revalidateSeconds),
+            card: await fetchMatchCard(eventId, item.documentCode),
           },
         ] as const;
       } catch {
@@ -126,7 +126,7 @@ export async function getEventMatches(
     const rawCode = codeByNormCode[normCode];
     if (!rawCode) return null;
     try {
-      return [normCode, await fetchMatchCard(eventId, fullDocCode(rawCode), revalidateSeconds)] as const;
+      return [normCode, await fetchMatchCard(eventId, fullDocCode(rawCode))] as const;
     } catch {
       return null; // keep whatever pass 1 already had
     }
@@ -144,7 +144,7 @@ export async function getEventMatches(
   );
   const orphanResults = await mapLimit(orphanEntries, MISSING_SCORE_CONCURRENCY, async ([normCode, docCode]) => {
     try {
-      return [normCode, { docCode, card: await fetchMatchCard(eventId, docCode, revalidateSeconds) }] as const;
+      return [normCode, { docCode, card: await fetchMatchCard(eventId, docCode) }] as const;
     } catch {
       return null; // try again next regeneration
     }
@@ -174,7 +174,7 @@ export async function getEventMatches(
   if (missing.length) {
     const filledEntries = await mapLimit(missing, MISSING_SCORE_CONCURRENCY, async (m) => {
       try {
-        return [m.normCode, await fetchMatchCard(eventId, fullDocCode(m.code), revalidateSeconds)] as const;
+        return [m.normCode, await fetchMatchCard(eventId, fullDocCode(m.code))] as const;
       } catch {
         return null; // no score available for this match either — leave as-is
       }
