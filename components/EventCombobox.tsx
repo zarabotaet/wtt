@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { NormalizedEvent } from '@/lib/types';
 
 function statusDotClass(status: string): string {
@@ -10,6 +10,7 @@ export function EventCombobox({
   events,
   currentEventId,
   onSelect,
+  onHover,
 }: {
   events: NormalizedEvent[];
   currentEventId?: string;
@@ -18,12 +19,29 @@ export function EventCombobox({
   // server-side on every tournament change, defeating the point of this
   // being an SPA-like switch. See components/MatchFeed.tsx.
   onSelect: (eventId: string) => void;
+  // Background prefetch hint; fired only once the pointer rests on an
+  // option for 150 ms, so sweeping across the list costs nothing.
+  onHover?: (eventId: string) => void;
 }) {
   const current = events.find((e) => String(e.eventId) === String(currentEventId));
   const [query, setQuery] = useState(current?.eventName ?? '');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function hoverEnd() {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
+  }
+
+  function hoverStart(eventId: string) {
+    if (!onHover) return;
+    hoverEnd();
+    hoverTimer.current = setTimeout(() => onHover(eventId), 150);
+  }
+
+  useEffect(() => hoverEnd, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -72,6 +90,8 @@ export function EventCombobox({
                 key={e.eventId}
                 className={`event-option${String(e.eventId) === String(currentEventId) ? ' selected' : ''}${i === activeIndex ? ' active' : ''}`}
                 onMouseDown={() => choose(e)}
+                onMouseEnter={() => hoverStart(String(e.eventId))}
+                onMouseLeave={hoverEnd}
               >
                 <span className={statusDotClass(e.status)} />
                 {e.eventName}

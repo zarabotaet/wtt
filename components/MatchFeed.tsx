@@ -1,100 +1,79 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Match, NormalizedEvent } from '@/lib/types';
+import { useEffect, useMemo, useState } from 'react';
+import { useUnit } from 'effector-react';
+import type { EventEnvelope, Match, NormalizedEvent } from '@/lib/types';
+import type { Entry } from '@/lib/model/entry';
 import { applyFilters, deriveFilterOptions, EMPTY_FILTERS, type Filters } from '@/lib/filters';
-import { useLiveScoreUpdater } from '@/lib/hooks/useLiveScoreUpdater';
+import { $current, $currentId, $isFetching, $lastError, eventHovered, eventOpened, refreshClicked } from '@/lib/model/event-feed';
+import { FeedProvider } from './FeedProvider';
 import { EventCombobox } from './EventCombobox';
 import { ThemeToggle } from './ThemeToggle';
 import { FilterBar } from './FilterBar';
 import { SectionHeader } from './SectionHeader';
 import { MatchCard } from './MatchCard';
+import { UpdatedAgo } from './UpdatedAgo';
 
-// Owns which tournament is showing. Switching tournaments must NOT go
-// through next/navigation's router — that re-runs the whole [eventId]
-// page server-side on every click, which is exactly the "why is this so
-// slow, it used to be a fast SPA" complaint this replaces. Instead we
-// fetch the fast-path JSON directly and swap it in client-side, updating
-// the URL via the History API so it stays correct for sharing/back-forward
-// without triggering Next's own data fetch.
-export function MatchFeed({
-  eventId: initialEventId,
-  initialMatches,
-  events,
-}: {
-  eventId: string;
-  initialMatches: Match[];
-  events: NormalizedEvent[];
-}) {
-  const [eventId, setEventId] = useState(initialEventId);
-  const [seedMatches, setSeedMatches] = useState(initialMatches);
-  const [isSwitching, setIsSwitching] = useState(false);
-  const eventIdRef = useRef(eventId);
-  eventIdRef.current = eventId;
+const NO_MATCHES: Match[] = [];
 
-  const selectEvent = useCallback(async (newEventId: string, opts: { pushState?: boolean } = {}) => {
-    const { pushState = true } = opts;
-    if (String(newEventId) === String(eventIdRef.current)) return;
-    setIsSwitching(true);
-    try {
-      const res = await fetch(`/api/events/${newEventId}/matches`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const fresh: Match[] = await res.json();
-      if (pushState) window.history.pushState(null, '', `/events/${newEventId}`);
-      setSeedMatches(fresh);
-      setEventId(newEventId);
-    } catch {
-      // Client-side fetch failed (network hiccup, or a genuinely missing
-      // event) — fall back to a real navigation so Next's own error
-      // handling (e.g. notFound()) still applies.
-      window.location.href = `/events/${newEventId}`;
-    } finally {
-      setIsSwitching(false);
-    }
-  }, []);
+// Switching tournaments never goes through next/navigation's router (that
+// would re-run the [eventId] page on the server). The Effector model in
+// lib/model/event-feed.ts owns which tournament is showing, its IndexedDB
+// cache, background refresh and history.pushState.
+export function MatchFeed({ envelope, events }: { envelope: EventEnvelope; events: NormalizedEvent[] }) {
+  return (
+    <FeedProvider envelope={envelope}>
+      <MatchFeedView events={events} />
+    </FeedProvider>
+  );
+}
 
-  // Keep the URL's tournament in sync with browser back/forward, since we
-  // update it ourselves via history.pushState instead of the router.
-  useEffect(() => {
-    function onPopState() {
-      const match = window.location.pathname.match(/\/events\/([^/]+)/);
-      if (match) selectEvent(match[1], { pushState: false });
-    }
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, [selectEvent]);
+function MatchFeedView({ events }: { events: NormalizedEvent[] }) {
+  const [currentId, current, isFetching, lastError, open, hover, refresh] = useUnit([
+    $currentId, $current, $isFetching, $lastError, eventOpened, eventHovered, refreshClicked,
+  ]);
 
   useEffect(() => {
-    const ev = events.find((e) => String(e.eventId) === String(eventId));
+    const ev = events.find((e) => String(e.eventId) === String(currentId));
     if (ev) document.title = `${ev.eventName} — Matches & Results`;
-  }, [eventId, events]);
+  }, [currentId, events]);
 
   return (
     <MatchFeedBody
-      key={eventId}
-      eventId={eventId}
-      initialMatches={seedMatches}
+      key={currentId}
+      eventId={currentId}
+      entry={current}
       events={events}
-      onSelectEvent={selectEvent}
-      isSwitching={isSwitching}
+      isFetching={isFetching}
+      lastError={lastError}
+      onSelect={(id) => open({ id, pushUrl: true })}
+      onHover={hover}
+      onRefresh={() => refresh()}
     />
   );
 }
 
+// Keyed by tournament, so filters reset on every switch.
 function MatchFeedBody({
   eventId,
-  initialMatches,
+  entry,
   events,
-  onSelectEvent,
-  isSwitching,
+  isFetching,
+  lastError,
+  onSelect,
+  onHover,
+  onRefresh,
 }: {
   eventId: string;
-  initialMatches: Match[];
+  entry: Entry | null;
   events: NormalizedEvent[];
-  onSelectEvent: (eventId: string) => void;
-  isSwitching: boolean;
+  isFetching: boolean;
+  lastError: string | null;
+  onSelect: (eventId: string) => void;
+  onHover: (eventId: string) => void;
+  onRefresh: () => void;
 }) {
-  const { matches, refresh, isRefreshing } = useLiveScoreUpdater(eventId, initialMatches);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const matches = entry?.matches ?? NO_MATCHES;
 
   const options = useMemo(() => deriveFilterOptions(matches), [matches]);
   const filtered = useMemo(() => applyFilters(matches, filters), [matches, filters]);
@@ -116,13 +95,13 @@ function MatchFeedBody({
           <span className="dot" />
           Matches
         </div>
-        <EventCombobox events={events} currentEventId={eventId} onSelect={onSelectEvent} />
+        <EventCombobox events={events} currentEventId={eventId} onSelect={onSelect} onHover={onHover} />
         <FilterBar options={options} filters={filters} onChange={setFilters} />
         <button
           type="button"
-          className={`refresh-btn${isRefreshing || isSwitching ? ' spinning' : ''}`}
-          onClick={() => refresh()}
-          disabled={isRefreshing || isSwitching}
+          className={`refresh-btn${isFetching ? ' spinning' : ''}`}
+          onClick={onRefresh}
+          disabled={isFetching}
           aria-label="Refresh"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
@@ -138,12 +117,17 @@ function MatchFeedBody({
         <span><b>{live.length}</b> live</span>
         <span><b>{scheduled.length}</b> upcoming</span>
         <span><b>{done.length}</b> completed</span>
+        {entry && <UpdatedAgo generatedAt={entry.generatedAt} tier={entry.tier} error={lastError} />}
       </div>
       <main>
         <div className="feed">
           {!filtered.length && (
             <div className="empty-msg">
-              {matches.length ? 'No matches match the selected filters' : 'No matches for this event'}
+              {!entry
+                ? 'Loading…'
+                : matches.length
+                  ? 'No matches match the selected filters'
+                  : 'No matches for this event'}
             </div>
           )}
           {!!scheduled.length && <SectionHeader label="Upcoming" />}

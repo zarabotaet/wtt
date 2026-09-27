@@ -73,7 +73,7 @@ async function EventContent({ params }: { params: Promise<{ eventId: string }> }
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
       />
-      <MatchFeed eventId={envelope.eventId} initialMatches={envelope.matches} events={events} />
+      <MatchFeed envelope={envelope} events={events} />
     </>
   );
 }
