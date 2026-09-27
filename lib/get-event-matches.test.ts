@@ -176,29 +176,4 @@ describe('getEventMatches', () => {
     expect(matches).toHaveLength(1);
     expect(matches[0].normCode).toBe('KNOWN');
   });
-
-  it('with fillMissingScores: false, skips officialresult.json discovery and leaves a done-without-score match unfilled (fast SSR path)', async () => {
-    const units = Array.from({ length: 5 }, (_, i) => unit(`DONE${i}`, 'Official', [`P${i}a`, `P${i}b`]));
-    vi.mocked(fetchSchedule).mockResolvedValue([{ Competition: { Unit: units } }]);
-    vi.mocked(fetchOfficialResult).mockResolvedValue([
-      { documentCode: 'OLDDONE', startDateLocal: '2026-09-01T09:00:00', match_card: null },
-    ] as RawArchiveItem[]);
-    vi.mocked(fetchMatchCard).mockImplementation(async () => ({
-      competitiors: [
-        { competitiorName: 'winner', scores: '11,11,11,0,0' },
-        { competitiorName: 'loser', scores: '5,6,7,0,0' },
-      ],
-      matchConfig: { bestOfXGames: 5 },
-    }));
-
-    const matches = await getEventMatches(EVENT_ID, undefined, { fillMissingScores: false });
-
-    expect(fetchOfficialResult).not.toHaveBeenCalled();
-    expect(fetchMatchCard).not.toHaveBeenCalled();
-    expect(matches.map((m) => m.normCode).sort()).toEqual(['DONE0', 'DONE1', 'DONE2', 'DONE3', 'DONE4']);
-    matches.forEach((m) => {
-      expect(m.status).toBe('done');
-      expect(m.gameScores).toBeNull();
-    });
-  });
 });

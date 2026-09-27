@@ -1,10 +1,8 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
-import { connection } from 'next/server';
-import { getEventMatches } from '@/lib/get-event-matches';
+import { getEventData } from '@/lib/event-data';
 import { getEventsList } from '@/lib/event-list';
-import { WttApiError } from '@/lib/wtt-api';
 import { ZoomSlider } from '@/components/ZoomSlider';
 import { MatchFeed } from '@/components/MatchFeed';
 import { Footer } from '@/components/Footer';
@@ -56,18 +54,11 @@ function FeedFallback() {
 }
 
 async function EventContent({ params }: { params: Promise<{ eventId: string }> }) {
-  // Transitional: uncached getEventMatches reads Date.now (cacheBust); removed once the page reads cached getEventData.
-  await connection();
   const { eventId } = await params;
-  const matchesPromise = getEventMatches(eventId, 60, { fillMissingScores: false }).catch((err) => {
-    if (err instanceof WttApiError && (err.status === 404 || err.status === 403)) {
-      notFound();
-    }
-    throw err;
-  });
-  const [matches, events] = await Promise.all([matchesPromise, getEventsList()]);
+  const [envelope, events] = await Promise.all([getEventData(eventId), getEventsList()]);
+  if (!envelope) notFound();
 
-  const jsonLd = matches.slice(0, 20).map((m) => ({
+  const jsonLd = envelope.matches.slice(0, 20).map((m) => ({
     '@context': 'https://schema.org',
     '@type': 'SportsEvent',
     name: m.round,
@@ -82,7 +73,7 @@ async function EventContent({ params }: { params: Promise<{ eventId: string }> }
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
       />
-      <MatchFeed eventId={eventId} initialMatches={matches} events={events} />
+      <MatchFeed eventId={envelope.eventId} initialMatches={envelope.matches} events={events} />
     </>
   );
 }

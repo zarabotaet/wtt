@@ -1,24 +1,10 @@
-import { NextResponse } from 'next/server';
-import { getEventMatches } from '@/lib/get-event-matches';
-import { WttApiError } from '@/lib/wtt-api';
+import { getEventData } from '@/lib/event-data';
 
-
-// Backs client-side tournament switching (see components/MatchFeed.tsx):
-// the combobox fetches this instead of letting Next.js's router re-run the
-// whole [eventId] page server-side, so picking a different tournament feels
-// instant like the original prototype instead of a full page navigation.
-// Mirrors the [eventId]/page.tsx SSR fast path exactly (fillMissingScores:
-// false) — the client's useLiveScoreUpdater mount-poll against .../live
-// fills in the rest moments later.
+// Temporary shim until the Effector UI switches to GET /api/events/[eventId]
+// (layered-cache plan, Task 8): returns the cached snapshot's matches.
 export async function GET(_req: Request, { params }: { params: Promise<{ eventId: string }> }) {
   const { eventId } = await params;
-  try {
-    const matches = await getEventMatches(eventId, 60, { fillMissingScores: false });
-    return NextResponse.json(matches);
-  } catch (err) {
-    if (err instanceof WttApiError && (err.status === 404 || err.status === 403)) {
-      return NextResponse.json({ error: 'not found' }, { status: 404 });
-    }
-    throw err;
-  }
+  const envelope = await getEventData(eventId);
+  if (!envelope) return Response.json({ error: 'not found' }, { status: 404 });
+  return Response.json(envelope.matches);
 }
