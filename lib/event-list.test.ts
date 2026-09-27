@@ -5,7 +5,7 @@ vi.mock('./wtt-api', () => ({ fetchEventsList: vi.fn() }));
 
 import { cacheLife } from 'next/cache';
 import { fetchEventsList } from './wtt-api';
-import { getEventsList } from './event-list';
+import { getEventsList, getEventsListOrNull } from './event-list';
 
 describe('getEventsList', () => {
   it('caches the normalized events list for hours', async () => {
@@ -16,5 +16,15 @@ describe('getEventsList', () => {
     expect(cacheLife).toHaveBeenCalledWith('hours');
     expect(fetchEventsList).toHaveBeenCalledWith();
     expect(events).toEqual([expect.objectContaining({ eventId: '1', status: 'past' })]);
+  });
+});
+
+describe('getEventsList upstream failure', () => {
+  it('caches a failure as null briefly instead of throwing inside the cached scope', async () => {
+    vi.mocked(cacheLife).mockClear();
+    vi.mocked(fetchEventsList).mockRejectedValue(new Error('HTTP 502'));
+    await expect(getEventsListOrNull()).resolves.toBeNull();
+    expect(cacheLife).toHaveBeenCalledWith('minutes');
+    await expect(getEventsList()).rejects.toThrow('unavailable');
   });
 });

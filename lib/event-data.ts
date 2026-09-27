@@ -1,6 +1,6 @@
 import { cacheLife } from 'next/cache';
 import { getEventMatches } from './get-event-matches';
-import { getEventsList } from './event-list';
+import { getEventsListOrNull } from './event-list';
 import { computeTier } from './tier';
 import { WttApiError } from './wtt-api';
 import type { EventEnvelope, Match, NormalizedEvent } from './types';
@@ -31,9 +31,9 @@ export async function getEventData(eventId: string): Promise<EventEnvelope | nul
   try {
     [matches, events] = await Promise.all([
       getEventMatches(eventId, stats),
-      getEventsList().catch((err) => {
-        console.warn(`getEventData(${eventId}): events list unavailable`, err);
-        return [];
+      getEventsListOrNull().then((list) => {
+        if (!list) console.warn(`getEventData(${eventId}): events list unavailable`);
+        return list ?? [];
       }),
     ]);
   } catch (err) {

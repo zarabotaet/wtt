@@ -3,11 +3,11 @@ import type { Match, NormalizedEvent } from './types';
 
 vi.mock('next/cache', () => ({ cacheLife: vi.fn() }));
 vi.mock('./get-event-matches', () => ({ getEventMatches: vi.fn() }));
-vi.mock('./event-list', () => ({ getEventsList: vi.fn() }));
+vi.mock('./event-list', () => ({ getEventsListOrNull: vi.fn() }));
 
 import { cacheLife } from 'next/cache';
 import { getEventMatches } from './get-event-matches';
-import { getEventsList } from './event-list';
+import { getEventsListOrNull } from './event-list';
 import { WttApiError } from './wtt-api';
 import { getEventData, finalizeTier } from './event-data';
 
@@ -36,7 +36,7 @@ const EVENTS = [
 beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(Date, 'now').mockReturnValue(NOW);
-  vi.mocked(getEventsList).mockResolvedValue(EVENTS);
+  vi.mocked(getEventsListOrNull).mockResolvedValue(EVENTS);
 });
 
 afterEach(() => {
@@ -69,7 +69,7 @@ describe('getEventData', () => {
   });
 
   it('treats the tournament as live when the events list is unavailable', async () => {
-    vi.mocked(getEventsList).mockRejectedValue(new Error('list down'));
+    vi.mocked(getEventsListOrNull).mockResolvedValue(null);
     vi.mocked(getEventMatches).mockResolvedValue([match('done')]);
     const env = await getEventData('PAST');
     expect(env?.tier).toBe('live');

@@ -113,12 +113,28 @@ function isCardFinal(card: MatchCard): boolean {
 // undecided (live/scheduled) card is kept for a second or two only, so
 // every getEventData regeneration reads it fresh; the cache-busting q=
 // param is still always present (see resolveUrl).
-export async function fetchMatchCard(eventId: string, docCode: string): Promise<MatchCard> {
+//
+// The cached part never throws: an error escaping a nested 'use cache'
+// scope fails the whole prerender even when the caller catches it (a single
+// WTT 502 on one card broke a deploy). A failure is cached as null for a
+// second or two and turned back into an error outside the cache.
+async function fetchMatchCardCached(eventId: string, docCode: string): Promise<MatchCard | string> {
   'use cache: remote';
-  const card = await fetchJson<MatchCard>(resolveUrl(`${BASE_URL}/matchdata/${eventId}/${docCode}.json`));
-  if (isCardFinal(card)) cacheLife('max');
-  else cacheLife({ stale: 0, revalidate: 1, expire: 2 });
-  return card;
+  try {
+    const card = await fetchJson<MatchCard>(resolveUrl(`${BASE_URL}/matchdata/${eventId}/${docCode}.json`));
+    if (isCardFinal(card)) cacheLife('max');
+    else cacheLife({ stale: 0, revalidate: 1, expire: 2 });
+    return card;
+  } catch (err) {
+    cacheLife({ stale: 0, revalidate: 1, expire: 2 });
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
+export async function fetchMatchCard(eventId: string, docCode: string): Promise<MatchCard> {
+  const result = await fetchMatchCardCached(eventId, docCode);
+  if (typeof result === 'string') throw new Error(result);
+  return result;
 }
 
 // The ONLY endpoint listing every completed match of an active tournament

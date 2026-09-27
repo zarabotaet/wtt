@@ -120,6 +120,15 @@ describe('fetchMatchCard', () => {
   });
 });
 
+describe('fetchMatchCard upstream failure', () => {
+  it('rejects without throwing inside the cached scope, and caches the failure only briefly', async () => {
+    vi.mocked(cacheLife).mockClear();
+    mockFetchOnce({}, false, 502);
+    await expect(fetchMatchCard('12345', 'DOC')).rejects.toThrow('502');
+    expect(cacheLife).toHaveBeenCalledWith({ stale: 0, revalidate: 1, expire: 2 });
+  });
+});
+
 describe('fetchOfficialResult', () => {
   it('builds a cache-busted URL to officialresult_minimal.json for the eventId', async () => {
     mockFetchOnce([]);
