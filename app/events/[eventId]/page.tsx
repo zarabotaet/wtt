@@ -9,27 +9,29 @@ import { Footer } from '@/components/Footer';
 
 export const revalidate = 60;
 
-export async function generateMetadata({ params }: { params: { eventId: string } }): Promise<Metadata> {
+export async function generateMetadata({ params }: { params: Promise<{ eventId: string }> }): Promise<Metadata> {
+  const { eventId } = await params;
   const events = normalizeEventsList(await fetchEventsList(3600));
-  const event = events.find((e) => String(e.eventId) === String(params.eventId));
+  const event = events.find((e) => String(e.eventId) === String(eventId));
   const title = event ? `${event.eventName} — Matches & Results` : 'WTT Matches';
   const description = event ? `Live scores, schedule and results for ${event.eventName}.` : undefined;
   return {
     title,
     description,
-    alternates: { canonical: `/events/${params.eventId}` },
+    alternates: { canonical: `/events/${eventId}` },
     openGraph: { title, description },
   };
 }
 
-export default async function EventPage({ params }: { params: { eventId: string } }) {
+export default async function EventPage({ params }: { params: Promise<{ eventId: string }> }) {
+  const { eventId } = await params;
   // Fast path: skip the expensive officialresult-discovery and
   // missing-score fill-in passes here so switching tournaments doesn't
   // block on dozens of individual matchdata/ fetches — the client-side
   // live-poll hook fires an immediate full fetch on mount (see
   // useLiveScoreUpdater) to fill in whatever this fast pass left out,
   // usually within a second or two.
-  const matchesPromise = getEventMatches(params.eventId, 60, { fillMissingScores: false }).catch((err) => {
+  const matchesPromise = getEventMatches(eventId, 60, { fillMissingScores: false }).catch((err) => {
     if (err instanceof WttApiError && (err.status === 404 || err.status === 403)) {
       notFound();
     }
@@ -53,7 +55,7 @@ export default async function EventPage({ params }: { params: { eventId: string 
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
       />
-      <MatchFeed eventId={params.eventId} initialMatches={matches} events={events} />
+      <MatchFeed eventId={eventId} initialMatches={matches} events={events} />
       <ZoomSlider />
       <Footer />
     </>

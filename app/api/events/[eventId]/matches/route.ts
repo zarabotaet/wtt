@@ -11,9 +11,10 @@ export const revalidate = 60;
 // Mirrors the [eventId]/page.tsx SSR fast path exactly (fillMissingScores:
 // false) — the client's useLiveScoreUpdater mount-poll against .../live
 // fills in the rest moments later.
-export async function GET(_req: Request, { params }: { params: { eventId: string } }) {
+export async function GET(_req: Request, { params }: { params: Promise<{ eventId: string }> }) {
+  const { eventId } = await params;
   try {
-    const matches = await getEventMatches(params.eventId, 60, { fillMissingScores: false });
+    const matches = await getEventMatches(eventId, 60, { fillMissingScores: false });
     return NextResponse.json(matches);
   } catch (err) {
     if (err instanceof WttApiError && (err.status === 404 || err.status === 403)) {
