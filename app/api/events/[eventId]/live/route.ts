@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getEventMatches } from '@/lib/get-event-matches';
 
-export const revalidate = 15;
 
 export async function GET(_req: Request, { params }: { params: Promise<{ eventId: string }> }) {
   const { eventId } = await params;

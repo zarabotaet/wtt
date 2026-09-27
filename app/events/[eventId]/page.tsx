@@ -1,17 +1,25 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
+import { connection } from 'next/server';
 import { getEventMatches } from '@/lib/get-event-matches';
-import { fetchEventsList, WttApiError } from '@/lib/wtt-api';
-import { normalizeEventsList } from '@/lib/events';
+import { getEventsList } from '@/lib/event-list';
+import { WttApiError } from '@/lib/wtt-api';
 import { ZoomSlider } from '@/components/ZoomSlider';
 import { MatchFeed } from '@/components/MatchFeed';
 import { Footer } from '@/components/Footer';
 
-export const revalidate = 60;
+// Cache Components requires at least one param. Prerender the top of the
+// list (ongoing first); every other tournament is served from the App
+// Shell on its first visit and cached from then on.
+export async function generateStaticParams() {
+  const events = await getEventsList();
+  return events.slice(0, 1).map((e) => ({ eventId: String(e.eventId) }));
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ eventId: string }> }): Promise<Metadata> {
   const { eventId } = await params;
-  const events = normalizeEventsList(await fetchEventsList(3600));
+  const events = await getEventsList();
   const event = events.find((e) => String(e.eventId) === String(eventId));
   const title = event ? `${event.eventName} — Matches & Results` : 'WTT Matches';
   const description = event ? `Live scores, schedule and results for ${event.eventName}.` : undefined;
@@ -23,22 +31,41 @@ export async function generateMetadata({ params }: { params: Promise<{ eventId: 
   };
 }
 
-export default async function EventPage({ params }: { params: Promise<{ eventId: string }> }) {
+// params are awaited inside the boundary so tournaments outside
+// generateStaticParams still get an App Shell.
+export default function EventPage({ params }: { params: Promise<{ eventId: string }> }) {
+  return (
+    <>
+      <Suspense fallback={<FeedFallback />}>
+        <EventContent params={params} />
+      </Suspense>
+      <ZoomSlider />
+      <Footer />
+    </>
+  );
+}
+
+function FeedFallback() {
+  return (
+    <main>
+      <div className="feed">
+        <div className="empty-msg">Loading…</div>
+      </div>
+    </main>
+  );
+}
+
+async function EventContent({ params }: { params: Promise<{ eventId: string }> }) {
+  // Transitional: uncached getEventMatches reads Date.now (cacheBust); removed once the page reads cached getEventData.
+  await connection();
   const { eventId } = await params;
-  // Fast path: skip the expensive officialresult-discovery and
-  // missing-score fill-in passes here so switching tournaments doesn't
-  // block on dozens of individual matchdata/ fetches — the client-side
-  // live-poll hook fires an immediate full fetch on mount (see
-  // useLiveScoreUpdater) to fill in whatever this fast pass left out,
-  // usually within a second or two.
   const matchesPromise = getEventMatches(eventId, 60, { fillMissingScores: false }).catch((err) => {
     if (err instanceof WttApiError && (err.status === 404 || err.status === 403)) {
       notFound();
     }
     throw err;
   });
-  const [matches, eventsRaw] = await Promise.all([matchesPromise, fetchEventsList(3600)]);
-  const events = normalizeEventsList(eventsRaw);
+  const [matches, events] = await Promise.all([matchesPromise, getEventsList()]);
 
   const jsonLd = matches.slice(0, 20).map((m) => ({
     '@context': 'https://schema.org',
@@ -56,8 +83,6 @@ export default async function EventPage({ params }: { params: Promise<{ eventId:
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
       />
       <MatchFeed eventId={eventId} initialMatches={matches} events={events} />
-      <ZoomSlider />
-      <Footer />
     </>
   );
 }

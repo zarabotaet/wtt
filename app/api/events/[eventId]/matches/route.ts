@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getEventMatches } from '@/lib/get-event-matches';
 import { WttApiError } from '@/lib/wtt-api';
 
-export const revalidate = 60;
 
 // Backs client-side tournament switching (see components/MatchFeed.tsx):
 // the combobox fetches this instead of letting Next.js's router re-run the

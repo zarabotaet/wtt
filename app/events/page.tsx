@@ -1,10 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { fetchEventsList } from '@/lib/wtt-api';
-import { normalizeEventsList } from '@/lib/events';
+import { getEventsList } from '@/lib/event-list';
 import { EventNavCombobox } from '@/components/EventNavCombobox';
-
-export const revalidate = 3600;
 
 export const metadata: Metadata = {
   title: 'All Tournaments — WTT Matches',
@@ -12,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 export default async function EventsPage() {
-  const events = normalizeEventsList(await fetchEventsList(3600));
+  const events = await getEventsList();
   return (
     <main>
       <h1>Tournaments</h1>
