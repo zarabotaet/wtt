@@ -104,11 +104,7 @@
 cd /Users/zarabotaet/wtt && git status --short && git branch --show-current
 ```
 
-Ожидается ветка `upgrade-next16`. Если в выводе есть `M lib/wtt-api.ts` (старая правка на `unstable_cache` из другой сессии; она ломает один тест), спрячь её. Её заменит Task 3:
-
-```bash
-cd /Users/zarabotaet/wtt && git stash push -m "wip: unstable_cache match cards (superseded by layered-cache Task 3)" -- lib/wtt-api.ts
-```
+Ожидается ветка `upgrade-next16` и чистое рабочее дерево. Старая незакоммиченная правка `lib/wtt-api.ts` на `unstable_cache` удалена, её заменяет Task 3.
 
 Проверь, что база зелёная:
 
@@ -689,7 +685,7 @@ revalidateSeconds === undefined ? undefined : { next: { revalidate: revalidateSe
 
 URL и так уникален благодаря бакету в 1 мс. Тест `uses cache: no-store when no revalidateSeconds is given` в `lib/wtt-api.test.ts` при этом обнови: жди `undefined`.
 
-- [ ] **Step 5: Commit и уборка stash**
+- [ ] **Step 5: Commit**
 
 ```bash
 cd /Users/zarabotaet/wtt && git add lib/wtt-api.ts lib/wtt-api.test.ts lib/get-event-matches.ts && git commit -m "$(cat <<'EOF'
@@ -698,10 +694,7 @@ Cache decided match cards with use cache: remote
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
 EOF
 )" && git push
-cd /Users/zarabotaet/wtt && git stash list | grep -n "superseded by layered-cache Task 3" || echo "no stash to drop"
 ```
-
-Если stash найден (например, `stash@{0}`), удали его: `git stash drop stash@{0}`, подставив свой номер.
 
 ---
 
