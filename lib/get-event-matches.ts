@@ -23,13 +23,19 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 // runs inside getEventData's 'use cache: remote' scope (lib/event-data.ts),
 // so visitors are served the cached result and regeneration happens in the
 // background.
-export async function getEventMatches(eventId: string): Promise<Match[]> {
+//
+// `stats`, when given, is filled in with whether the pass was complete:
+// false if results10/archive/officialresult failed or any matchdata/ card
+// lookup threw. Callers use it to avoid caching a truncated snapshot as final.
+export async function getEventMatches(eventId: string, stats?: { complete: boolean }): Promise<Match[]> {
+  let complete = true;
+  const fail = () => { complete = false; };
   const [scheduleRaw, results10Raw, archiveRaw, liveIdsRaw, officialResultRaw] = await Promise.all([
     fetchSchedule(eventId),
-    fetchResults10(eventId).catch(() => []),
-    fetchArchive(eventId).catch(() => []),
+    fetchResults10(eventId).catch(() => { fail(); return []; }),
+    fetchArchive(eventId).catch(() => { fail(); return []; }),
     fetchLiveIds(eventId).catch(() => []),
-    fetchOfficialResult(eventId).catch(() => []),
+    fetchOfficialResult(eventId).catch(() => { fail(); return []; }),
   ]);
 
   // IMPORTANT: each schedule.json item can bundle MANY matches under one
@@ -80,6 +86,7 @@ export async function getEventMatches(eventId: string): Promise<Match[]> {
         },
       ] as const;
     } catch {
+      fail();
       return null; // try again next regeneration
     }
   });
@@ -109,6 +116,7 @@ export async function getEventMatches(eventId: string): Promise<Match[]> {
     try {
       return [normCode, await fetchMatchCard(eventId, fullDocCode(rawCode))] as const;
     } catch {
+      fail();
       return null; // keep whatever pass 1 already had
     }
   });
@@ -127,6 +135,7 @@ export async function getEventMatches(eventId: string): Promise<Match[]> {
     try {
       return [normCode, { docCode, card: await fetchMatchCard(eventId, docCode) }] as const;
     } catch {
+      fail();
       return null; // try again next regeneration
     }
   });
@@ -155,6 +164,7 @@ export async function getEventMatches(eventId: string): Promise<Match[]> {
       try {
         return [m.normCode, await fetchMatchCard(eventId, fullDocCode(m.code))] as const;
       } catch {
+        fail();
         return null; // no score available for this match either — leave as-is
       }
     });
@@ -182,5 +192,6 @@ export async function getEventMatches(eventId: string): Promise<Match[]> {
   // new Date().toISOString() stamp (also zero-padded ISO, same ordering).
   matches.sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''));
 
+  if (stats) stats.complete = complete;
   return matches;
 }

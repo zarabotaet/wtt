@@ -176,4 +176,40 @@ describe('getEventMatches', () => {
     expect(matches).toHaveLength(1);
     expect(matches[0].normCode).toBe('KNOWN');
   });
+
+  describe('completeness stats', () => {
+    const sched: RawScheduleItem[] = [{ Competition: { Unit: [unit('M1', 'Scheduled', ['A', 'B'])] } }];
+
+    it('reports complete=true on the happy path', async () => {
+      vi.mocked(fetchSchedule).mockResolvedValue(sched);
+      const stats = { complete: false };
+      await getEventMatches(EVENT_ID, stats);
+      expect(stats.complete).toBe(true);
+    });
+
+    it('reports complete=false when archive rejects', async () => {
+      vi.mocked(fetchSchedule).mockResolvedValue(sched);
+      vi.mocked(fetchArchive).mockRejectedValue(new Error('down'));
+      const stats = { complete: true };
+      await getEventMatches(EVENT_ID, stats);
+      expect(stats.complete).toBe(false);
+    });
+
+    it('reports complete=false when officialresult rejects', async () => {
+      vi.mocked(fetchSchedule).mockResolvedValue(sched);
+      vi.mocked(fetchOfficialResult).mockRejectedValue(new Error('down'));
+      const stats = { complete: true };
+      await getEventMatches(EVENT_ID, stats);
+      expect(stats.complete).toBe(false);
+    });
+
+    it('reports complete=false when a missing-score card fetch rejects', async () => {
+      vi.mocked(fetchSchedule).mockResolvedValue([{ Competition: { Unit: [unit('D1', 'Official', ['A', 'B'])] } }]);
+      const stats = { complete: true };
+      const matches = await getEventMatches(EVENT_ID, stats);
+      expect(matches[0].status).toBe('done');
+      expect(fetchMatchCard).toHaveBeenCalled();
+      expect(stats.complete).toBe(false);
+    });
+  });
 });

@@ -104,6 +104,20 @@ describe('fetchMatchCard', () => {
     await fetchMatchCard('12345', 'DOC');
     expect(cacheLife).toHaveBeenCalledWith({ stale: 0, revalidate: 1, expire: 2 });
   });
+  it('treats a best-of-7 card at 3-0 in sets as undecided', async () => {
+    mockFetchOnce({
+      competitiors: [{ scores: '11,11,11,0,0,0,0' }, { scores: '5,6,7,0,0,0,0' }],
+      matchConfig: { bestOfXGames: 7 },
+    });
+    await fetchMatchCard('12345', 'DOC');
+    expect(cacheLife).toHaveBeenCalledWith({ stale: 0, revalidate: 1, expire: 2 });
+  });
+
+  it('defaults to best-of-5 when matchConfig is missing and caches a decided card for max', async () => {
+    mockFetchOnce({ competitiors: [{ scores: '11,11,11,0,0' }, { scores: '5,6,7,0,0' }] });
+    await fetchMatchCard('12345', 'DOC');
+    expect(cacheLife).toHaveBeenCalledWith('max');
+  });
 });
 
 describe('fetchOfficialResult', () => {

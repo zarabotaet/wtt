@@ -9,7 +9,7 @@ import { cacheLife } from 'next/cache';
 import { getEventMatches } from './get-event-matches';
 import { getEventsList } from './event-list';
 import { WttApiError } from './wtt-api';
-import { getEventData } from './event-data';
+import { getEventData, finalizeTier } from './event-data';
 
 const NOW = Date.parse('2026-09-20T12:00:00Z');
 
@@ -49,7 +49,7 @@ describe('getEventData', () => {
     vi.mocked(getEventMatches).mockResolvedValue(matches);
     const env = await getEventData('PAST');
     expect(env).toEqual({ eventId: 'PAST', matches, tier: 'final', generatedAt: NOW });
-    expect(getEventMatches).toHaveBeenCalledWith('PAST');
+    expect(getEventMatches).toHaveBeenCalledWith('PAST', expect.anything());
     expect(cacheLife).toHaveBeenCalledTimes(1);
     expect(cacheLife).toHaveBeenCalledWith('max');
   });
@@ -85,5 +85,31 @@ describe('getEventData', () => {
     vi.mocked(getEventMatches).mockRejectedValue(new WttApiError(500, 'u'));
     await expect(getEventData('PAST')).rejects.toThrow('500');
     expect(cacheLife).not.toHaveBeenCalled();
+  });
+
+  it('downgrades final to live when the pass was incomplete', async () => {
+    vi.mocked(getEventMatches).mockImplementation(async (_id, stats) => {
+      if (stats) stats.complete = false;
+      return [match('done')];
+    });
+    const env = await getEventData('PAST');
+    expect(env?.tier).toBe('live');
+    expect(cacheLife).toHaveBeenCalledWith({ revalidate: 15, expire: 86400 });
+    expect(cacheLife).not.toHaveBeenCalledWith('max');
+  });
+});
+
+describe('finalizeTier', () => {
+  it('downgrades final to live when incomplete', () => {
+    expect(finalizeTier('final', [match('done')], false)).toBe('live');
+  });
+  it('downgrades final to live when a done match lacks gameScores', () => {
+    expect(finalizeTier('final', [{ ...match('done'), gameScores: null }], true)).toBe('live');
+  });
+  it('keeps final when complete with scores', () => {
+    expect(finalizeTier('final', [match('done')], true)).toBe('final');
+  });
+  it('leaves non-final tiers alone', () => {
+    expect(finalizeTier('future', [match('scheduled')], false)).toBe('future');
   });
 });

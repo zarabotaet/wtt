@@ -51,7 +51,10 @@ export const pushUrlFx = createEffect((id: string) => {
 });
 
 export const navigateFx = createEffect((id: string) => {
-  window.location.href = `/events/${id}`;
+  // Runs inside an Effector effect, outside React, so useRouter() is not
+  // available; a full navigation is intended here.
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+  window.location.assign(`/events/${id}`);
 });
 
 // Fire-and-forget: the handler returns at once so nothing ever awaits the
