@@ -1,15 +1,9 @@
 // components/MatchFeed.test.tsx
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MatchFeed } from './MatchFeed';
-import type { Match } from '@/lib/types';
-
-// MatchFeed now renders EventCombobox in its header, which calls
-// next/navigation's useRouter() — there is no real App Router context
-// under a bare `render()` in a Vitest/jsdom test, so it must be mocked.
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-}));
+import type { Match, NormalizedEvent } from '@/lib/types';
 
 function match(overrides: Partial<Match>): Match {
   return {
@@ -71,5 +65,39 @@ describe('MatchFeed', () => {
     render(<MatchFeed eventId="EVT1" initialMatches={[]} events={[]} />);
     expect(screen.getByText('No matches for this event')).toBeInTheDocument();
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  });
+
+  it('switches tournaments via the combobox with a client-side fetch + history.pushState, not a full page navigation', async () => {
+    // Every match here starts 'done' so useLiveScoreUpdater's mount-poll
+    // (in both the initial render and the post-switch remount) stays
+    // silent — isolating the single fetch this test cares about: the
+    // combobox's own client-side switch request.
+    const eventA = [match({ normCode: 'A1', status: 'done' })];
+    const eventB = [match({ normCode: 'B1', status: 'done' })];
+    const events: NormalizedEvent[] = [
+      { eventId: '1', eventName: 'Event One', startDateTime: '2026-01-01T00:00:00', endDateTime: '2026-01-02T00:00:00', status: 'past' },
+      { eventId: '2', eventName: 'Event Two', startDateTime: '2026-02-01T00:00:00', endDateTime: '2026-02-02T00:00:00', status: 'past' },
+    ];
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve(url.includes('/2/matches') ? eventB : eventA) })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const pushStateSpy = vi.spyOn(window.history, 'pushState');
+    const user = userEvent.setup();
+
+    render(<MatchFeed eventId="1" initialMatches={eventA} events={events} />);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const input = screen.getByLabelText('Select event');
+    await user.click(input);
+    await user.clear(input);
+    await user.type(input, 'Two');
+    await user.click(screen.getByText('Event Two'));
+
+    await waitFor(() => expect(screen.getByDisplayValue('Event Two')).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/events/2/matches', { cache: 'no-store' });
+    expect(pushStateSpy).toHaveBeenCalledWith(null, '', '/events/2');
+    expect(document.title).toBe('Event Two — Matches & Results');
   });
 });

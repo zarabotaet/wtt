@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { fetchEventsList } from '@/lib/wtt-api';
 import { normalizeEventsList } from '@/lib/events';
-import { EventCombobox } from '@/components/EventCombobox';
+import { EventNavCombobox } from '@/components/EventNavCombobox';
 
 export const revalidate = 3600;
 
@@ -16,7 +16,7 @@ export default async function EventsPage() {
   return (
     <main>
       <h1>Tournaments</h1>
-      <EventCombobox events={events} />
+      <EventNavCombobox events={events} />
       <ul className="event-list">
         {events.map((e) => (
           <li key={e.eventId}>

@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Match, NormalizedEvent } from '@/lib/types';
 import { applyFilters, deriveFilterOptions, EMPTY_FILTERS, type Filters } from '@/lib/filters';
 import { useLiveScoreUpdater } from '@/lib/hooks/useLiveScoreUpdater';
@@ -9,14 +9,89 @@ import { FilterBar } from './FilterBar';
 import { SectionHeader } from './SectionHeader';
 import { MatchCard } from './MatchCard';
 
+// Owns which tournament is showing. Switching tournaments must NOT go
+// through next/navigation's router — that re-runs the whole [eventId]
+// page server-side on every click, which is exactly the "why is this so
+// slow, it used to be a fast SPA" complaint this replaces. Instead we
+// fetch the fast-path JSON directly and swap it in client-side, updating
+// the URL via the History API so it stays correct for sharing/back-forward
+// without triggering Next's own data fetch.
 export function MatchFeed({
-  eventId,
+  eventId: initialEventId,
   initialMatches,
   events,
 }: {
   eventId: string;
   initialMatches: Match[];
   events: NormalizedEvent[];
+}) {
+  const [eventId, setEventId] = useState(initialEventId);
+  const [seedMatches, setSeedMatches] = useState(initialMatches);
+  const [isSwitching, setIsSwitching] = useState(false);
+  const eventIdRef = useRef(eventId);
+  eventIdRef.current = eventId;
+
+  const selectEvent = useCallback(async (newEventId: string, opts: { pushState?: boolean } = {}) => {
+    const { pushState = true } = opts;
+    if (String(newEventId) === String(eventIdRef.current)) return;
+    setIsSwitching(true);
+    try {
+      const res = await fetch(`/api/events/${newEventId}/matches`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const fresh: Match[] = await res.json();
+      if (pushState) window.history.pushState(null, '', `/events/${newEventId}`);
+      setSeedMatches(fresh);
+      setEventId(newEventId);
+    } catch {
+      // Client-side fetch failed (network hiccup, or a genuinely missing
+      // event) — fall back to a real navigation so Next's own error
+      // handling (e.g. notFound()) still applies.
+      window.location.href = `/events/${newEventId}`;
+    } finally {
+      setIsSwitching(false);
+    }
+  }, []);
+
+  // Keep the URL's tournament in sync with browser back/forward, since we
+  // update it ourselves via history.pushState instead of the router.
+  useEffect(() => {
+    function onPopState() {
+      const match = window.location.pathname.match(/\/events\/([^/]+)/);
+      if (match) selectEvent(match[1], { pushState: false });
+    }
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [selectEvent]);
+
+  useEffect(() => {
+    const ev = events.find((e) => String(e.eventId) === String(eventId));
+    if (ev) document.title = `${ev.eventName} — Matches & Results`;
+  }, [eventId, events]);
+
+  return (
+    <MatchFeedBody
+      key={eventId}
+      eventId={eventId}
+      initialMatches={seedMatches}
+      events={events}
+      onSelectEvent={selectEvent}
+      isSwitching={isSwitching}
+    />
+  );
+}
+
+function MatchFeedBody({
+  eventId,
+  initialMatches,
+  events,
+  onSelectEvent,
+  isSwitching,
+}: {
+  eventId: string;
+  initialMatches: Match[];
+  events: NormalizedEvent[];
+  onSelectEvent: (eventId: string) => void;
+  isSwitching: boolean;
 }) {
   const { matches, refresh, isRefreshing } = useLiveScoreUpdater(eventId, initialMatches);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
@@ -41,13 +116,13 @@ export function MatchFeed({
           <span className="dot" />
           Matches
         </div>
-        <EventCombobox events={events} currentEventId={eventId} />
+        <EventCombobox events={events} currentEventId={eventId} onSelect={onSelectEvent} />
         <FilterBar options={options} filters={filters} onChange={setFilters} />
         <button
           type="button"
-          className={`refresh-btn${isRefreshing ? ' spinning' : ''}`}
+          className={`refresh-btn${isRefreshing || isSwitching ? ' spinning' : ''}`}
           onClick={() => refresh()}
-          disabled={isRefreshing}
+          disabled={isRefreshing || isSwitching}
           aria-label="Refresh"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">

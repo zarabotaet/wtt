@@ -1,6 +1,5 @@
 'use client';
 import { useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import type { NormalizedEvent } from '@/lib/types';
 
 function statusDotClass(status: string): string {
@@ -10,11 +9,16 @@ function statusDotClass(status: string): string {
 export function EventCombobox({
   events,
   currentEventId,
+  onSelect,
 }: {
   events: NormalizedEvent[];
   currentEventId?: string;
+  // Client-side switch (fetch + history.pushState), NOT next/navigation's
+  // router.push — that would make Next.js re-run the whole page
+  // server-side on every tournament change, defeating the point of this
+  // being an SPA-like switch. See components/MatchFeed.tsx.
+  onSelect: (eventId: string) => void;
 }) {
-  const router = useRouter();
   const current = events.find((e) => String(e.eventId) === String(currentEventId));
   const [query, setQuery] = useState(current?.eventName ?? '');
   const [open, setOpen] = useState(false);
@@ -32,7 +36,7 @@ export function EventCombobox({
     setQuery(evt.eventName);
     inputRef.current?.blur();
     if (String(evt.eventId) !== String(currentEventId)) {
-      router.push(`/events/${evt.eventId}`);
+      onSelect(String(evt.eventId));
     }
   }
 
