@@ -1,4 +1,4 @@
-import { fetchArchive, fetchLiveIds, fetchMatchCard, fetchOfficialResult, fetchResults10, fetchSchedule } from './wtt-api';
+import { fetchArchive, fetchLiveIds, fetchMatchCard, fetchOfficialResult, fetchResults10, fetchSchedule, WttApiError } from './wtt-api';
 import { computeMergedMatches, dedupeUnits, fullDocCode, normalizeCode } from './merge-matches';
 import type { Match, MatchCard, RawUnit } from './types';
 
@@ -18,36 +18,45 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return results;
 }
 
-export interface GetEventMatchesOptions {
-  // The officialresult(_minimal).json discovery pass and the final
-  // missing-score fill-in pass each cost one whole batch of individually
-  // fetched matchdata/ cards (concurrency-limited, but still real
-  // network round-trips) — cheap for a tournament with a handful of
-  // finished matches, but for one deep into its bracket (dozens of
-  // completed matches schedule.json no longer lists in full) this can
-  // add multiple seconds to a single call. Set false for a fast,
-  // render-blocking SSR pass (schedule + last-10 results + live scores
-  // for whatever's *currently* live are usually cheap); the client-side
-  // live-poll route always calls with this at its default (true) shortly
-  // after the page mounts, so the fuller picture still arrives within a
-  // couple of seconds — same "show what you have, fill in the rest in
-  // the background" shape the original prototype had, just moved from
-  // client-side IndexedDB to a fast-SSR-then-poll split.
-  fillMissingScores?: boolean;
-}
-
-export async function getEventMatches(
-  eventId: string,
-  revalidateSeconds?: number,
-  { fillMissingScores = true }: GetEventMatchesOptions = {}
-): Promise<Match[]> {
+// Always the full pass (officialresult discovery + missing-score fill-in).
+// It can take seconds for a tournament deep into its bracket, but it only
+// runs inside getEventData's 'use cache: remote' scope (lib/event-data.ts),
+// so visitors are served the cached result and regeneration happens in the
+// background.
+//
+// `stats`, when given, is filled in with whether the pass was complete:
+// false if results10/archive/officialresult failed (other than a plain 404) or any matchdata/ card
+// lookup threw. Callers use it to avoid caching a truncated snapshot as final.
+export async function getEventMatches(eventId: string, stats?: { complete: boolean }): Promise<Match[]> {
+  let complete = true;
+  const fail = () => { complete = false; };
+  // For the optional sources a 404/403 means the file doesn't exist for this
+  // event (e.g. no results10 or archive for an old or a running tournament)
+  // — only other errors (5xx, network) make the pass incomplete.
+  const optional = (err: unknown) => {
+    if (!(err instanceof WttApiError && (err.status === 404 || err.status === 403))) fail();
+    return [];
+  };
+  let scheduleGone: WttApiError | null = null;
   const [scheduleRaw, results10Raw, archiveRaw, liveIdsRaw, officialResultRaw] = await Promise.all([
-    fetchSchedule(eventId, revalidateSeconds),
-    fetchResults10(eventId, revalidateSeconds).catch(() => []),
-    fetchArchive(eventId, revalidateSeconds).catch(() => []),
-    fetchLiveIds(eventId, revalidateSeconds).catch(() => []),
-    fillMissingScores ? fetchOfficialResult(eventId, revalidateSeconds).catch(() => []) : Promise.resolve([]),
+    fetchSchedule(eventId).catch((err) => {
+      if (err instanceof WttApiError && (err.status === 404 || err.status === 403)) {
+        scheduleGone = err;
+        return [];
+      }
+      throw err;
+    }),
+    fetchResults10(eventId).catch(optional),
+    fetchArchive(eventId).catch(optional),
+    fetchLiveIds(eventId).catch(() => []),
+    fetchOfficialResult(eventId).catch(optional),
   ]);
+
+  // WTT deletes schedule.json for long-finished tournaments (404) while the
+  // archive keeps every match (checked live 2026-09-28 on events back to
+  // 2021), so build from the archive alone then. With neither, the event has
+  // no data at WTT: not found here, getEventData decides what to show.
+  if (scheduleGone && !archiveRaw.some((item) => item.match_card)) throw scheduleGone;
 
   // IMPORTANT: each schedule.json item can bundle MANY matches under one
   // Competition.Unit array, not a single match — taking only Unit[0]
@@ -75,36 +84,35 @@ export async function getEventMatches(
   // tournament has run long enough. Anything it lists that schedule.json
   // and the archive endpoint both have no entry for gets its own matchdata/
   // card fetched individually, same concurrency-limited pattern as the
-  // other point lookups below. Skipped entirely in the fast path.
+  // other point lookups below.
   const orphanDoneCards: Record<string, { docCode: string; startDateLocal: string; card: MatchCard | null }> = {};
-  if (fillMissingScores) {
-    const knownScheduleCodes = new Set(units.map((u) => normalizeCode(u.Code)));
-    const knownArchiveCodes = new Set(archiveItems.map((item) => normalizeCode(item.documentCode)));
-    const officialResultCandidates = (Array.isArray(officialResultRaw) ? officialResultRaw : []).filter(
-      (item) => {
-        const normCode = normalizeCode(item.documentCode);
-        return !knownScheduleCodes.has(normCode) && !knownArchiveCodes.has(normCode);
-      }
-    );
-    const orphanDoneEntries = await mapLimit(officialResultCandidates, MISSING_SCORE_CONCURRENCY, async (item) => {
+  const knownScheduleCodes = new Set(units.map((u) => normalizeCode(u.Code)));
+  const knownArchiveCodes = new Set(archiveItems.map((item) => normalizeCode(item.documentCode)));
+  const officialResultCandidates = (Array.isArray(officialResultRaw) ? officialResultRaw : []).filter(
+    (item) => {
       const normCode = normalizeCode(item.documentCode);
-      try {
-        return [
-          normCode,
-          {
-            docCode: item.documentCode,
-            startDateLocal: item.startDateLocal,
-            card: await fetchMatchCard(eventId, item.documentCode, revalidateSeconds),
-          },
-        ] as const;
-      } catch {
-        return null; // try again next regeneration
-      }
-    });
-    orphanDoneEntries.forEach((entry) => {
-      if (entry) orphanDoneCards[entry[0]] = entry[1];
-    });
-  }
+      return !knownScheduleCodes.has(normCode) && !knownArchiveCodes.has(normCode);
+    }
+  );
+  const orphanDoneEntries = await mapLimit(officialResultCandidates, MISSING_SCORE_CONCURRENCY, async (item) => {
+    const normCode = normalizeCode(item.documentCode);
+    try {
+      return [
+        normCode,
+        {
+          docCode: item.documentCode,
+          startDateLocal: item.startDateLocal,
+          card: await fetchMatchCard(eventId, item.documentCode),
+        },
+      ] as const;
+    } catch {
+      fail();
+      return null; // try again next regeneration
+    }
+  });
+  orphanDoneEntries.forEach((entry) => {
+    if (entry) orphanDoneCards[entry[0]] = entry[1];
+  });
 
   // Pass 1: merge without fresh live cards, just to see which matches come
   // out flagged live (via ScheduleStatus or the livematchids.json override).
@@ -126,8 +134,9 @@ export async function getEventMatches(
     const rawCode = codeByNormCode[normCode];
     if (!rawCode) return null;
     try {
-      return [normCode, await fetchMatchCard(eventId, fullDocCode(rawCode), revalidateSeconds)] as const;
+      return [normCode, await fetchMatchCard(eventId, fullDocCode(rawCode))] as const;
     } catch {
+      fail();
       return null; // keep whatever pass 1 already had
     }
   });
@@ -144,8 +153,9 @@ export async function getEventMatches(
   );
   const orphanResults = await mapLimit(orphanEntries, MISSING_SCORE_CONCURRENCY, async ([normCode, docCode]) => {
     try {
-      return [normCode, { docCode, card: await fetchMatchCard(eventId, docCode, revalidateSeconds) }] as const;
+      return [normCode, { docCode, card: await fetchMatchCard(eventId, docCode) }] as const;
     } catch {
+      fail();
       return null; // try again next regeneration
     }
   });
@@ -168,14 +178,13 @@ export async function getEventMatches(
   // Completed matches without a score yet (results10 only covers the last
   // 10 finished matches tournament-wide) get their card fetched
   // individually, capped at MISSING_SCORE_CONCURRENCY parallel requests.
-  // Skipped in the fast path — these render with a "Loading score…" note
-  // until the next full (client-polled) fetch fills them in.
-  const missing = fillMissingScores ? matches.filter((m) => m.status === 'done' && !m.gameScores) : [];
+  const missing = matches.filter((m) => m.status === 'done' && !m.gameScores);
   if (missing.length) {
     const filledEntries = await mapLimit(missing, MISSING_SCORE_CONCURRENCY, async (m) => {
       try {
-        return [m.normCode, await fetchMatchCard(eventId, fullDocCode(m.code), revalidateSeconds)] as const;
+        return [m.normCode, await fetchMatchCard(eventId, fullDocCode(m.code))] as const;
       } catch {
+        fail();
         return null; // no score available for this match either — leave as-is
       }
     });
@@ -203,5 +212,6 @@ export async function getEventMatches(
   // new Date().toISOString() stamp (also zero-padded ISO, same ordering).
   matches.sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''));
 
+  if (stats) stats.complete = complete;
   return matches;
 }

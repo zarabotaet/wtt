@@ -94,3 +94,13 @@ export interface RawLiveIdsItem {
 // officialresult_minimal.json's items have the same shape as an archive
 // item (documentCode + startDateLocal + match_card, always null for an
 // active tournament) — reusing RawArchiveItem avoids a duplicate type.
+
+// Server-side cache class of a tournament snapshot — see lib/tier.ts.
+export type Tier = 'final' | 'live' | 'future';
+
+export interface EventEnvelope {
+  eventId: string;
+  matches: Match[];
+  tier: Tier;
+  generatedAt: number; // ms epoch when the server built this snapshot
+}

@@ -8,9 +8,14 @@ vi.mock('./wtt-api', () => ({
   fetchLiveIds: vi.fn(),
   fetchMatchCard: vi.fn(),
   fetchOfficialResult: vi.fn(),
+  WttApiError: class WttApiError extends Error {
+    constructor(public status: number, url: string) {
+      super(`HTTP ${status} for ${url}`);
+    }
+  },
 }));
 
-import { fetchSchedule, fetchResults10, fetchArchive, fetchLiveIds, fetchMatchCard, fetchOfficialResult } from './wtt-api';
+import { fetchSchedule, fetchResults10, fetchArchive, fetchLiveIds, fetchMatchCard, fetchOfficialResult, WttApiError } from './wtt-api';
 import { getEventMatches } from './get-event-matches';
 
 const EVENT_ID = 'EVT1';
@@ -37,6 +42,60 @@ beforeEach(() => {
   vi.mocked(fetchLiveIds).mockResolvedValue([] as RawLiveIdsItem[]);
   vi.mocked(fetchOfficialResult).mockResolvedValue([] as RawArchiveItem[]);
   vi.mocked(fetchMatchCard).mockRejectedValue(new Error('not mocked for this match'));
+});
+
+describe('getEventMatches without schedule.json', () => {
+  // WTT drops schedule.json for long-finished tournaments (404) but keeps
+  // the archive; upcoming tournaments have neither yet.
+  const archived = [{
+    documentCode: 'ARCH1',
+    startDateLocal: '2024-02-20T10:00:00',
+    match_card: {
+      competitiors: [{ competitiorName: 'Old A', scores: '11,11,11,0,0' }, { competitiorName: 'Old B', scores: '5,6,7,0,0' }],
+      matchConfig: { bestOfXGames: 5 },
+    },
+  }] as RawArchiveItem[];
+
+  it('builds the matches from the archive when schedule.json is gone', async () => {
+    vi.mocked(fetchSchedule).mockRejectedValue(new WttApiError(404, 'schedule'));
+    vi.mocked(fetchArchive).mockResolvedValue(archived);
+    const stats = { complete: true };
+    const matches = await getEventMatches(EVENT_ID, stats);
+    expect(matches.map((m) => m.normCode)).toEqual(['ARCH1']);
+    expect(matches[0].status).toBe('done');
+    expect(stats.complete).toBe(true);
+  });
+
+  it('still reports not-found when neither schedule.json nor the archive exist', async () => {
+    vi.mocked(fetchSchedule).mockRejectedValue(new WttApiError(404, 'schedule'));
+    await expect(getEventMatches(EVENT_ID)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('does not hide other schedule.json failures', async () => {
+    vi.mocked(fetchSchedule).mockRejectedValue(new WttApiError(502, 'schedule'));
+    vi.mocked(fetchArchive).mockResolvedValue(archived);
+    await expect(getEventMatches(EVENT_ID)).rejects.toMatchObject({ status: 502 });
+  });
+});
+
+describe('getEventMatches optional sources', () => {
+  it('treats a 404 on results10/archive/officialresult as absent, not as an incomplete pass', async () => {
+    vi.mocked(fetchSchedule).mockResolvedValue([{ Competition: { Unit: [unit('M1', 'Scheduled', ['A', 'B'])] } }]);
+    vi.mocked(fetchResults10).mockRejectedValue(new WttApiError(404, 'r10'));
+    vi.mocked(fetchArchive).mockRejectedValue(new WttApiError(404, 'arch'));
+    vi.mocked(fetchOfficialResult).mockRejectedValue(new WttApiError(404, 'min'));
+    const stats = { complete: true };
+    await getEventMatches(EVENT_ID, stats);
+    expect(stats.complete).toBe(true);
+  });
+
+  it('marks the pass incomplete when an optional source fails with a server error', async () => {
+    vi.mocked(fetchSchedule).mockResolvedValue([{ Competition: { Unit: [unit('M1', 'Scheduled', ['A', 'B'])] } }]);
+    vi.mocked(fetchResults10).mockRejectedValue(new WttApiError(502, 'r10'));
+    const stats = { complete: true };
+    await getEventMatches(EVENT_ID, stats);
+    expect(stats.complete).toBe(false);
+  });
 });
 
 describe('getEventMatches', () => {
@@ -177,28 +236,39 @@ describe('getEventMatches', () => {
     expect(matches[0].normCode).toBe('KNOWN');
   });
 
-  it('with fillMissingScores: false, skips officialresult.json discovery and leaves a done-without-score match unfilled (fast SSR path)', async () => {
-    const units = Array.from({ length: 5 }, (_, i) => unit(`DONE${i}`, 'Official', [`P${i}a`, `P${i}b`]));
-    vi.mocked(fetchSchedule).mockResolvedValue([{ Competition: { Unit: units } }]);
-    vi.mocked(fetchOfficialResult).mockResolvedValue([
-      { documentCode: 'OLDDONE', startDateLocal: '2026-09-01T09:00:00', match_card: null },
-    ] as RawArchiveItem[]);
-    vi.mocked(fetchMatchCard).mockImplementation(async () => ({
-      competitiors: [
-        { competitiorName: 'winner', scores: '11,11,11,0,0' },
-        { competitiorName: 'loser', scores: '5,6,7,0,0' },
-      ],
-      matchConfig: { bestOfXGames: 5 },
-    }));
+  describe('completeness stats', () => {
+    const sched: RawScheduleItem[] = [{ Competition: { Unit: [unit('M1', 'Scheduled', ['A', 'B'])] } }];
 
-    const matches = await getEventMatches(EVENT_ID, undefined, { fillMissingScores: false });
+    it('reports complete=true on the happy path', async () => {
+      vi.mocked(fetchSchedule).mockResolvedValue(sched);
+      const stats = { complete: false };
+      await getEventMatches(EVENT_ID, stats);
+      expect(stats.complete).toBe(true);
+    });
 
-    expect(fetchOfficialResult).not.toHaveBeenCalled();
-    expect(fetchMatchCard).not.toHaveBeenCalled();
-    expect(matches.map((m) => m.normCode).sort()).toEqual(['DONE0', 'DONE1', 'DONE2', 'DONE3', 'DONE4']);
-    matches.forEach((m) => {
-      expect(m.status).toBe('done');
-      expect(m.gameScores).toBeNull();
+    it('reports complete=false when archive rejects', async () => {
+      vi.mocked(fetchSchedule).mockResolvedValue(sched);
+      vi.mocked(fetchArchive).mockRejectedValue(new Error('down'));
+      const stats = { complete: true };
+      await getEventMatches(EVENT_ID, stats);
+      expect(stats.complete).toBe(false);
+    });
+
+    it('reports complete=false when officialresult rejects', async () => {
+      vi.mocked(fetchSchedule).mockResolvedValue(sched);
+      vi.mocked(fetchOfficialResult).mockRejectedValue(new Error('down'));
+      const stats = { complete: true };
+      await getEventMatches(EVENT_ID, stats);
+      expect(stats.complete).toBe(false);
+    });
+
+    it('reports complete=false when a missing-score card fetch rejects', async () => {
+      vi.mocked(fetchSchedule).mockResolvedValue([{ Competition: { Unit: [unit('D1', 'Official', ['A', 'B'])] } }]);
+      const stats = { complete: true };
+      const matches = await getEventMatches(EVENT_ID, stats);
+      expect(matches[0].status).toBe('done');
+      expect(fetchMatchCard).toHaveBeenCalled();
+      expect(stats.complete).toBe(false);
     });
   });
 });

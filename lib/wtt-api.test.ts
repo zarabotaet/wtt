@@ -1,5 +1,8 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fetchEventsList, fetchSchedule, fetchMatchCard, fetchOfficialResult } from './wtt-api';
+import { cacheLife } from 'next/cache';
+
+vi.mock('next/cache', () => ({ cacheLife: vi.fn() }));
 
 function mockFetchOnce(body: unknown, ok = true, status = 200) {
   vi.stubGlobal(
@@ -64,11 +67,65 @@ describe('fetchSchedule', () => {
 });
 
 describe('fetchMatchCard', () => {
-  it('builds the matchdata URL from eventId and documentCode', async () => {
+  beforeEach(() => {
+    vi.mocked(cacheLife).mockClear();
+  });
+
+  it('builds a cache-busted matchdata URL from eventId and documentCode', async () => {
     mockFetchOnce({});
     await fetchMatchCard('12345', 'DOC-CODE');
     const [url] = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0] as [string];
     expect(url).toContain('/matchdata/12345/DOC-CODE.json');
+    expect(url).toMatch(/[?&]q=\d+/);
+  });
+
+  it('caches a card with a decided winner for the maximum lifetime', async () => {
+    mockFetchOnce({
+      competitiors: [{ scores: '11,11,11,0,0' }, { scores: '5,6,7,0,0' }],
+      matchConfig: { bestOfXGames: 5 },
+    });
+    await fetchMatchCard('12345', 'DOC');
+    expect(cacheLife).toHaveBeenCalledTimes(1);
+    expect(cacheLife).toHaveBeenCalledWith('max');
+  });
+
+  it('keeps an undecided card only for a couple of seconds', async () => {
+    mockFetchOnce({
+      competitiors: [{ scores: '11,5,0,0,0' }, { scores: '5,11,0,0,0' }],
+      matchConfig: { bestOfXGames: 5 },
+    });
+    await fetchMatchCard('12345', 'DOC');
+    expect(cacheLife).toHaveBeenCalledTimes(1);
+    expect(cacheLife).toHaveBeenCalledWith({ stale: 0, revalidate: 1, expire: 2 });
+  });
+
+  it('treats a card without two competitors as undecided', async () => {
+    mockFetchOnce({});
+    await fetchMatchCard('12345', 'DOC');
+    expect(cacheLife).toHaveBeenCalledWith({ stale: 0, revalidate: 1, expire: 2 });
+  });
+  it('treats a best-of-7 card at 3-0 in sets as undecided', async () => {
+    mockFetchOnce({
+      competitiors: [{ scores: '11,11,11,0,0,0,0' }, { scores: '5,6,7,0,0,0,0' }],
+      matchConfig: { bestOfXGames: 7 },
+    });
+    await fetchMatchCard('12345', 'DOC');
+    expect(cacheLife).toHaveBeenCalledWith({ stale: 0, revalidate: 1, expire: 2 });
+  });
+
+  it('defaults to best-of-5 when matchConfig is missing and caches a decided card for max', async () => {
+    mockFetchOnce({ competitiors: [{ scores: '11,11,11,0,0' }, { scores: '5,6,7,0,0' }] });
+    await fetchMatchCard('12345', 'DOC');
+    expect(cacheLife).toHaveBeenCalledWith('max');
+  });
+});
+
+describe('fetchMatchCard upstream failure', () => {
+  it('rejects without throwing inside the cached scope, and caches the failure only briefly', async () => {
+    vi.mocked(cacheLife).mockClear();
+    mockFetchOnce({}, false, 502);
+    await expect(fetchMatchCard('12345', 'DOC')).rejects.toThrow('502');
+    expect(cacheLife).toHaveBeenCalledWith({ stale: 0, revalidate: 1, expire: 2 });
   });
 });
 

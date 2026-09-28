@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { tournamentStatus, normalizeEventsList } from './events';
+import { tournamentStatus, normalizeEventsList, eventEndMs } from './events';
 import type { RawEventListItem } from './types';
 
 const NOW = new Date('2026-09-12T12:00:00Z').getTime();
@@ -52,5 +52,19 @@ describe('normalizeEventsList', () => {
     ];
     const out = normalizeEventsList(list, NOW);
     expect(out.map((e) => e.eventId)).toEqual(['ongoing', 'future-near', 'future-far', 'past-recent', 'past-old']);
+  });
+});
+
+describe('eventEndMs', () => {
+  it('extends a bare midnight end date through the end of that calendar day', () => {
+    expect(eventEndMs('2026-09-14T00:00:00Z')).toBe(Date.parse('2026-09-15T00:00:00Z') - 1);
+  });
+
+  it('keeps a precise end timestamp as is', () => {
+    expect(eventEndMs('2026-09-14T18:00:00Z')).toBe(Date.parse('2026-09-14T18:00:00Z'));
+  });
+
+  it('returns NaN for an unparseable date', () => {
+    expect(Number.isNaN(eventEndMs('not a date'))).toBe(true);
   });
 });

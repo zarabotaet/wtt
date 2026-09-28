@@ -1,0 +1,88 @@
+import { cacheLife } from 'next/cache';
+import { getEventMatches } from './get-event-matches';
+import { getEventsListOrNull } from './event-list';
+import { computeTier } from './tier';
+import { WttApiError } from './wtt-api';
+import type { EventEnvelope, Match, NormalizedEvent } from './types';
+import { failInsideCache, unwrapCached, type CachedFailure } from './cached-failure';
+
+type Tier = ReturnType<typeof computeTier>;
+
+// Upstream errors are rethrown, never cached, so a failed regeneration keeps
+// the last good snapshot; a long expire keeps it available through a long
+// WTT outage even for a tournament nobody visits for a while.
+const KEEP_WHILE_WTT_DOWN = 30 * 86400;
+
+// 'final' is cached forever (server, CDN, browser) and never refetched, so it
+// must only be granted to a snapshot we trust. A transient WTT failure can
+// yield a truncated list whose matches all happen to be done; in that case,
+// or when a done match still has no score, stay 'live' and retry soon.
+export function finalizeTier(tier: Tier, matches: Match[], complete: boolean): Tier {
+  if (tier !== 'final') return tier;
+  if (!complete || matches.some((m) => m.status === 'done' && !m.gameScores)) return 'live';
+  return tier;
+}
+
+// The single server-side source for a tournament: page SSR and
+// GET /api/events/[eventId] both read this. The lifetime is picked after
+// the data is known (conditional cacheLife); an explicit outer cacheLife
+// overrides the short lifetimes of the nested match-card caches.
+// Not-found is returned as null rather than thrown: an error crossing the
+// 'use cache' boundary is not guaranteed to keep its class.
+// Last good snapshot per tournament in this server instance. At request
+// time Next regenerates an outdated 'use cache' entry in the foreground, and
+// errors are not cached, so without this every refresh during a WTT outage
+// would fail instead of serving what we already had.
+const lastGood = new Map<string, EventEnvelope>();
+
+export async function getEventData(eventId: string): Promise<EventEnvelope | null> {
+  const id = String(eventId);
+  try {
+    const envelope = unwrapCached(await getEventDataCached(eventId));
+    if (envelope) lastGood.set(id, envelope);
+    return envelope;
+  } catch (err) {
+    const previous = lastGood.get(id);
+    if (previous) return previous;
+    throw err;
+  }
+}
+
+async function getEventDataCached(eventId: string): Promise<EventEnvelope | null | CachedFailure> {
+  'use cache: remote';
+  let matches: Match[];
+  let events: NormalizedEvent[];
+  const stats = { complete: true };
+  try {
+    [matches, events] = await Promise.all([
+      getEventMatches(eventId, stats),
+      getEventsListOrNull().then((list) => {
+        if (!list) console.warn(`getEventData(${eventId}): events list unavailable`);
+        return list ?? [];
+      }),
+    ]);
+  } catch (err) {
+    if (!(err instanceof WttApiError && (err.status === 404 || err.status === 403))) {
+      return failInsideCache(err);
+    }
+    // No data at WTT. A tournament from the events list (typically an
+    // upcoming one, before WTT publishes its schedule) is shown empty;
+    // anything else is not found.
+    const list = await getEventsListOrNull();
+    if (!list?.some((e) => String(e.eventId) === String(eventId))) {
+      cacheLife('minutes');
+      return null;
+    }
+    matches = [];
+    events = list;
+  }
+
+  const now = Date.now();
+  const event = events.find((e) => String(e.eventId) === String(eventId));
+  const tier = finalizeTier(computeTier(event, matches, now), matches, stats.complete);
+  if (tier === 'final') cacheLife('max');
+  else if (tier === 'live') cacheLife({ revalidate: 15, expire: KEEP_WHILE_WTT_DOWN });
+  else cacheLife({ revalidate: 3600, expire: KEEP_WHILE_WTT_DOWN });
+
+  return { eventId: String(eventId), matches, tier, generatedAt: now };
+}

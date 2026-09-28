@@ -6,6 +6,8 @@ import type {
   RawResults10Item,
   RawScheduleItem,
 } from './types';
+import { cacheLife } from 'next/cache';
+import { computeSets, isDecided, parseScores } from './merge-matches';
 
 // Server-side fetch is not subject to browser CORS, so unlike the
 // prototype we are not restricted to the one WTT mirror that allows
@@ -98,11 +100,41 @@ export function fetchLiveIds(eventId: string, revalidateSeconds?: number): Promi
   );
 }
 
-export function fetchMatchCard(eventId: string, docCode: string, revalidateSeconds?: number): Promise<MatchCard> {
-  return fetchJson(
-    resolveUrl(`${BASE_URL}/matchdata/${eventId}/${docCode}.json`, revalidateSeconds),
-    revalidateSeconds
-  );
+function isCardFinal(card: MatchCard): boolean {
+  const c = card?.competitiors;
+  if (!c || c.length !== 2) return false;
+  const { setsA, setsB } = computeSets(parseScores(c[0].scores), parseScores(c[1].scores));
+  return isDecided(setsA, setsB, card.matchConfig?.bestOfXGames || 5);
+}
+
+// A matchdata/ card with a decided winner never changes again — the
+// server-side twin of the prototype's IndexedDB rule "never re-fetch a
+// known finished score" — so it is kept for the maximum lifetime. An
+// undecided (live/scheduled) card is kept for a second or two only, so
+// every getEventData regeneration reads it fresh; the cache-busting q=
+// param is still always present (see resolveUrl).
+//
+// The cached part never throws: an error escaping a nested 'use cache'
+// scope fails the whole prerender even when the caller catches it (a single
+// WTT 502 on one card broke a deploy). A failure is cached as null for a
+// second or two and turned back into an error outside the cache.
+async function fetchMatchCardCached(eventId: string, docCode: string): Promise<MatchCard | string> {
+  'use cache: remote';
+  try {
+    const card = await fetchJson<MatchCard>(resolveUrl(`${BASE_URL}/matchdata/${eventId}/${docCode}.json`));
+    if (isCardFinal(card)) cacheLife('max');
+    else cacheLife({ stale: 0, revalidate: 1, expire: 2 });
+    return card;
+  } catch (err) {
+    cacheLife({ stale: 0, revalidate: 1, expire: 2 });
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
+export async function fetchMatchCard(eventId: string, docCode: string): Promise<MatchCard> {
+  const result = await fetchMatchCardCached(eventId, docCode);
+  if (typeof result === 'string') throw new Error(result);
+  return result;
 }
 
 // The ONLY endpoint listing every completed match of an active tournament

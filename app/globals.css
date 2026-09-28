@@ -290,3 +290,6 @@ main{ padding:20px 16px 140px; max-width:1600px; margin:0 auto; }
 @media (prefers-reduced-motion:reduce){
   .badge.live .pulse, .refresh-btn.spinning svg{animation:none;}
 }
+
+.updated-ago{margin-left:auto;}
+.updated-ago.error{color:var(--accent);}

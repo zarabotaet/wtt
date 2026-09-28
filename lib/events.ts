@@ -1,7 +1,7 @@
 import type { EventStatus, NormalizedEvent, RawEventListItem } from './types';
 
 const STATUS_RANK: Record<EventStatus, number> = { ongoing: 0, future: 1, past: 2 };
-const DAY_MS = 24 * 60 * 60 * 1000;
+export const DAY_MS = 24 * 60 * 60 * 1000;
 
 // WTT gives both startDateTime/endDateTime as a bare calendar date at
 // midnight ("...T00:00:00"), not a precise timestamp — comparing the raw
@@ -16,12 +16,15 @@ function isMidnightString(dateTimeStr: string): boolean {
   return /T00:00:00(\.0+)?Z?$/.test(dateTimeStr);
 }
 
+export function eventEndMs(endDateTime: string): number {
+  const end = new Date(endDateTime).getTime();
+  // extend a bare midnight date through the rest of that calendar day
+  return !isNaN(end) && isMidnightString(endDateTime) ? end + DAY_MS - 1 : end;
+}
+
 export function tournamentStatus(item: RawEventListItem, now: number = Date.now()): EventStatus {
   const start = new Date(item.startDateTime).getTime();
-  let end = new Date(item.endDateTime).getTime();
-  if (!isNaN(end) && isMidnightString(item.endDateTime)) {
-    end += DAY_MS - 1; // extend through the rest of that calendar day
-  }
+  const end = eventEndMs(item.endDateTime);
   if (!isNaN(start) && !isNaN(end) && start <= now && now <= end) return 'ongoing';
   if (!isNaN(start) && start > now) return 'future';
   return 'past';
